@@ -1,0 +1,382 @@
+---
+title: "Performance Dashboard"
+description: "Analytics and charts for tracking study performance, time investment, and progress metrics"
+---
+
+## Overview
+
+The **Performance Dashboard** transforms your study data into actionable insights with charts, statistics, and progress tracking. Monitor time invested, question performance, weekly trends, and subject-level analytics.
+
+<Info>
+  The Dashboard is the **Check** phase of the PDCA cycle - measure your performance here to identify areas for improvement.
+</Info>
+
+## Key Metrics
+
+The dashboard displays four primary stat cards:
+
+### 1. Study Time
+
+Total accumulated time from all completed study sessions.
+
+```js
+// Time calculation (views.js:666-667)
+const totalSecs = filteredEvts.reduce((s, e) => s + (e.tempoAcumulado || 0), 0);
+```
+
+### 2. Sessions Completed
+
+Count of events marked as `estudei` (studied).
+
+### 3. Questions Answered
+
+Sum of all questions from habit tracking and session registrations.
+
+```js
+// Question counting (views.js:668-670)
+const questTot = cutoffStr
+  ? (state.habitos.questoes || []).filter(r => r.data >= cutoffStr).reduce((s, q) => s + (q.quantidade || 1), 0)
+  : (state.habitos.questoes || []).reduce((s, q) => s + (q.quantidade || 1), 0);
+```
+
+### 4. Simulated Exams
+
+Total number of full practice exams completed.
+
+## Time Period Filters
+
+Filter all dashboard data by time period:
+
+| Period | Label | Days |
+|--------|-------|------|
+| **7 days** | 7d | Last 7 days |
+| **30 days** | 30d | Last 30 days |
+| **90 days** | 3m | Last 3 months |
+| **All time** | Total | Since first event |
+
+```js
+// Period filtering (views.js:653-664)
+export let dashPeriod = 7; // default
+
+export function setDashPeriod(p) {
+  dashPeriod = p;
+  renderCurrentView();
+}
+
+const cutoffStr = periodDays ? cutoffDateStr(periodDays) : null;
+const filteredEvts = cutoffStr
+  ? state.eventos.filter(e => e.status === 'estudei' && e.data && e.data >= cutoffStr)
+  : state.eventos.filter(e => e.status === 'estudei');
+```
+
+<Note>
+  The period filter applies to **all charts and metrics** on the dashboard simultaneously.
+</Note>
+
+## Charts
+
+### Daily Study Hours Chart
+
+Bar chart showing minutes studied per day:
+
+```js
+// Daily chart rendering (views.js:751-781)
+export function renderDailyChart(periodDays) {
+  const numDays = periodDays ? Math.min(periodDays, 90) : 30;
+  const days = [], data = [];
+  
+  for (let i = numDays - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const ds = d2.toISOString().split('T')[0];
+    
+    const secs = state.eventos
+      .filter(e => e.data === ds && e.status === 'estudei')
+      .reduce((s, e) => s + (e.tempoAcumulado || 0), 0);
+    
+    data.push(Math.round(secs / 60)); // Convert to minutes
+  }
+  
+  new Chart(ctx, {
+    type: 'bar',
+    data: { labels: days, datasets: [{ label: 'Minutos', data }] }
+  });
+}
+```
+
+**Features:**
+- X-axis: Date labels (dd/mm format)
+- Y-axis: Minutes studied
+- Green bars with 6px border radius
+- Responsive to container size
+
+### Time by Discipline Chart
+
+Doughnut chart showing time distribution across subjects:
+
+```js
+// Discipline chart rendering (views.js:783-809)
+export function renderDiscChart(periodDays) {
+  const discTime = {};
+  
+  evts.forEach(e => { 
+    discTime[e.discId] = (discTime[e.discId] || 0) + e.tempoAcumulado; 
+  });
+  
+  const labels = [], data = [], colors = [];
+  Object.entries(discTime).forEach(([id, secs]) => {
+    const d = getDisc(id);
+    labels.push(d ? d.disc.nome : id);
+    data.push(Math.round(secs / 60));
+    colors.push(d ? (d.disc.cor || '#10b981') : '#94a3b8');
+  });
+  
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: colors }] }
+  });
+}
+```
+
+**Features:**
+- Uses discipline colors from Editais
+- Shows legend on the right
+- Displays minutes per subject
+- Empty state message if no data
+
+## Habit Summary
+
+Lists all habit types with counts for the selected period:
+
+```js
+// Habit summary (views.js:811-826)
+export function renderHabitSummary(periodDays) {
+  const cutoffStr = periodDays ? cutoffDateStr(periodDays) : null;
+  
+  return HABIT_TYPES.map(h => {
+    const recent = cutoffStr
+      ? (state.habitos[h.key] || []).filter(r => r.data >= cutoffStr)
+      : (state.habitos[h.key] || []);
+    
+    const count = h.key === 'questoes' 
+      ? recent.reduce((s, q) => s + (q.quantidade || 1), 0) 
+      : recent.length;
+    
+    return `<div>${h.icon} ${h.label}: ${count}</div>`;
+  }).join('');
+}
+```
+
+**Habit Types:**
+- ❓ Questões (Questions)
+- 🔄 Revisão (Revision)
+- 📝 Simulado (Practice Exam)
+- 📖 Leitura (Reading)
+- 📰 Informativos (News Briefs)
+- ✍️ Discursiva (Essay Practice)
+- 🎬 Vídeoaula (Video Lessons)
+
+## Discipline Progress
+
+Progress bars showing completion percentage for each subject:
+
+```js
+// Progress calculation (views.js:828-848)
+export function renderDiscProgress() {
+  const discs = getAllDisciplinas();
+  
+  return discs.slice(0, 8).map(({ disc, edital }) => {
+    const total = disc.assuntos.length;
+    const done = disc.assuntos.filter(a => a.concluido).length;
+    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+    
+    return `
+      <div>
+        <div>${disc.icone} ${disc.nome}</div>
+        <div>${done}/${total}</div>
+        <div class="progress">
+          <div class="progress-bar" style="width:${pct}%;background:${disc.cor}"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+```
+
+**Display:**
+- Shows up to 8 disciplines
+- Icon and name from Editais
+- Fraction completed (e.g., "12/45")
+- Colored progress bar matching discipline color
+
+## Using the Dashboard
+
+<Steps>
+  <Step title="Select Time Period">
+    Click one of the period tabs (7d, 30d, 3m, Total) to filter all data. The dashboard re-renders with updated calculations.
+  </Step>
+
+  <Step title="Review Key Metrics">
+    Check the four stat cards at the top to see overall performance summary.
+  </Step>
+
+  <Step title="Analyze Daily Trends">
+    Examine the bar chart to identify:
+    - Days with peak productivity
+    - Gaps in your study schedule
+    - Weekly patterns (weekdays vs weekends)
+  </Step>
+
+  <Step title="Balance Subject Time">
+    Use the doughnut chart to ensure you're not over-focusing on one discipline while neglecting others.
+  </Step>
+
+  <Step title="Track Habit Compliance">
+    Review the habit summary to verify you're completing your daily targets for questions, reading, etc.
+  </Step>
+
+  <Step title="Monitor Syllabus Progress">
+    Check discipline progress bars to see which subjects need more attention.
+  </Step>
+</Steps>
+
+## Advanced Analytics
+
+### Performance Stats
+
+Calculates question performance metrics:
+
+```js
+// Performance calculation (logic.js:304-318)
+export function getPerformanceStats() {
+  let questionsTotal = 0;
+  let questionsCorrect = 0;
+  let questionsWrong = 0;
+
+  state.eventos.forEach(ev => {
+    if (ev.status === 'estudei' && ev.sessao && ev.sessao.questoes) {
+      questionsTotal += ev.sessao.questoes.total || 0;
+      questionsCorrect += ev.sessao.questoes.acertos || 0;
+      questionsWrong += ev.sessao.questoes.erros || 0;
+    }
+  });
+
+  return { questionsTotal, questionsCorrect, questionsWrong };
+}
+```
+
+### Pages Read Stats
+
+```js
+// Pages calculation (logic.js:320-328)
+export function getPagesReadStats() {
+  let pagesTotal = 0;
+  state.eventos.forEach(ev => {
+    if (ev.status === 'estudei' && ev.sessao && ev.sessao.paginas && ev.sessao.paginas.total) {
+      pagesTotal += ev.sessao.paginas.total;
+    }
+  });
+  return pagesTotal;
+}
+```
+
+### Syllabus Progress
+
+```js
+// Syllabus progress (logic.js:330-342)
+export function getSyllabusProgress() {
+  let totalAulas = 0;
+  let aulasEstudadas = 0;
+
+  state.editais.forEach(ed => {
+    ed.disciplinas.forEach(d => {
+      totalAulas += d.aulas ? d.aulas.length : 0;
+      aulasEstudadas += d.aulas ? d.aulas.filter(a => a.estudada).length : 0;
+    });
+  });
+
+  return { totalAssuntos: totalAulas, totalConcluidos: aulasEstudadas };
+}
+```
+
+<Warning>
+  Dashboard charts use the Chart.js library. Ensure the library is loaded before rendering the dashboard to avoid errors.
+</Warning>
+
+## Performance Optimization
+
+### Chart Cleanup
+
+Old chart instances are destroyed before creating new ones:
+
+```js
+// Chart cleanup (views.js:754, 786)
+if (_chartDaily) { _chartDaily.destroy(); _chartDaily = null; }
+if (_chartDisc) { _chartDisc.destroy(); _chartDisc = null; }
+```
+
+### Data Caching
+
+Filtered events are calculated once and reused:
+
+```js
+const filteredEvts = cutoffStr
+  ? state.eventos.filter(e => e.status === 'estudei' && e.data && e.data >= cutoffStr)
+  : state.eventos.filter(e => e.status === 'estudei');
+
+const totalSecs = filteredEvts.reduce((s, e) => s + (e.tempoAcumulado || 0), 0);
+// ... use filteredEvts for other calculations
+```
+
+## Empty States
+
+Graceful handling when no data exists:
+
+```js
+if (data.length === 0) {
+  ctx.parentElement.innerHTML = `
+    <div class="empty-state">
+      <div class="icon">📈</div>
+      <p>Sem dados no período selecionado</p>
+    </div>
+  `;
+  return;
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Regular Reviews">
+    Check the dashboard weekly to identify trends and adjust your study plan. Look for declining performance or unbalanced subject distribution.
+  </Accordion>
+
+  <Accordion title="Set Realistic Targets">
+    Use the 7-day view to set achievable weekly goals. Gradually increase targets as you build consistency.
+  </Accordion>
+
+  <Accordion title="Compare Periods">
+    Toggle between time periods to see if you're improving month-over-month. Compare 30d vs 90d for long-term trends.
+  </Accordion>
+
+  <Accordion title="Balance Metrics">
+    Don't optimize for just one metric. Balance time studied, questions answered, and syllabus coverage.
+  </Accordion>
+</AccordionGroup>
+
+## Export and Backup
+
+While not built into the dashboard UI, you can export data programmatically:
+
+```js
+// Export study data
+const exportData = {
+  eventos: state.eventos.filter(e => e.status === 'estudei'),
+  habitos: state.habitos,
+  timestamp: new Date().toISOString()
+};
+
+const json = JSON.stringify(exportData, null, 2);
+const blob = new Blob([json], { type: 'application/json' });
+// Download blob as file
+```

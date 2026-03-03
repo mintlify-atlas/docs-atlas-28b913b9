@@ -1,0 +1,179 @@
+---
+title: Introduction
+description: Welcome to Estudo Organizado - Your comprehensive study planning solution for public exams
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Hero Dark"
+/>
+
+## What is Estudo Organizado?
+
+Estudo Organizado is a **Progressive Web App (PWA)** designed for **study planning and organization** specifically tailored for public exam preparation in Brazil. Built with performance and simplicity in mind, it implements the **PDCA Cycle** methodology:
+
+- **Plan** in the Calendar
+- **Do** in the Study Organizer
+- **Check** in the Dashboard
+- **Act** with Spaced Repetition Reviews
+
+The application is built entirely with **vanilla JavaScript** (no frameworks), prioritizing performance, offline capability, and a native-like experience.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start Guide"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get started in minutes with your first study session
+  </Card>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Install Estudo Organizado on your device
+  </Card>
+  <Card
+    title="Study Organizer"
+    icon="clock"
+    href="/features/study-organizer"
+  >
+    Learn how to track study sessions with integrated Pomodoro timer
+  </Card>
+  <Card
+    title="Dashboard"
+    icon="chart-line"
+    href="/features/dashboard"
+  >
+    Monitor your performance with detailed metrics
+  </Card>
+</CardGroup>
+
+## Key Features
+
+Estudo Organizado provides a comprehensive suite of tools to help you succeed in public exam preparation:
+
+### Core Modules
+
+| Module | Description |
+|--------|-------------|
+| **Home Page** | Daily overview: scheduled events, completed sessions, delayed tasks, and pending reviews |
+| **Study Organizer** | Record study sessions with integrated Pomodoro timer |
+| **Calendar** | Monthly and weekly visualization of study events |
+| **Dashboard** | Performance metrics: study time, sessions, questions, and mock exams |
+| **Spaced Repetition** | Review system with configurable intervals (1, 7, 30, 90 days) |
+| **Habits Tracker** | Track study habits by category (Video lessons, Mock exams, etc.) |
+| **Exam Syllabi (Editais)** | Complete management of exam syllabi, subjects, and topics |
+| **Exam Board Intelligence** | Predictive analysis based on exam board topic frequency |
+| **Study Cycles** | Continuous study cycle management with progress tracking |
+| **Settings** | Themes (Stealth, Ruby, Matrix), calendars, sync, and backups |
+
+### Technology Stack
+
+<CardGroup cols={3}>
+  <Card title="HTML5" icon="code">
+    Semantic structure
+  </Card>
+  <Card title="CSS3" icon="palette">
+    Modern styling with CSS variables
+  </Card>
+  <Card title="JavaScript" icon="js">
+    Vanilla JS for optimal performance
+  </Card>
+  <Card title="PWA" icon="mobile">
+    Service Worker for offline support
+  </Card>
+  <Card title="IndexedDB" icon="database">
+    Local data persistence
+  </Card>
+  <Card title="Chart.js" icon="chart-simple">
+    Beautiful data visualizations
+  </Card>
+</CardGroup>
+
+## Progressive Web App Features
+
+As a PWA, Estudo Organizado offers:
+
+- **Offline Access**: Full functionality without internet connection
+- **Native Installation**: Install on desktop and mobile devices
+- **Fast Performance**: Cache-first strategy for instant loading
+- **Automatic Updates**: Service Worker keeps app updated
+- **Cross-Platform**: Works on Windows, macOS, Linux, Android, and iOS
+
+<Note>
+  The app uses a Service Worker with cache-first strategy, ensuring instant loading even offline. All your study data is stored locally in IndexedDB.
+</Note>
+
+## Sync & Backup Options
+
+Your data is precious. Estudo Organizado offers multiple sync and backup solutions:
+
+### Cloudflare Multi-Device Sync
+
+Synchronize your study data across devices instantly:
+
+1. Configure your Cloudflare Worker (see setup guide)
+2. Enter your URL and token in Settings
+3. Enable sync for real-time synchronization
+
+### Google Drive Integration
+
+- Native Google Drive API support for cloud storage
+- Automatic periodic sync every 5 minutes when configured
+- OAuth 2.0 authentication for secure access
+
+### Local Backup
+
+- Export/Import data via JSON files
+- Full data portability
+- Manual backup control
+
+<Warning>
+  Always maintain a backup of your study data, especially before major updates or system changes.
+</Warning>
+
+## Project Architecture
+
+The application follows a clean, modular architecture:
+
+```
+src/
+├── index.html          # Main application skeleton
+├── manifest.json       # PWA manifest
+├── sw.js              # Service Worker for offline support
+├── css/
+│   └── styles.css     # Application styling
+└── js/
+    ├── main.js        # Application entry point
+    ├── store.js       # State management & IndexedDB
+    ├── app.js         # Navigation & UI orchestration
+    ├── views.js       # View rendering
+    ├── logic.js       # Business logic & calculations
+    ├── relevance.js   # NLP & Fuzzy Match for exam analysis
+    └── components.js  # Reusable UI components
+```
+
+<Note>
+  The app is built with **vanilla JavaScript** - no frameworks or build tools required. This ensures maximum performance and minimal bundle size.
+</Note>
+
+## Open Source
+
+Estudo Organizado is open source under the MIT License. You're free to:
+
+- Use it for personal study planning
+- Modify it to fit your needs
+- Contribute improvements back to the community
+- Deploy it on your own infrastructure
+
+---
+
+<p align="center">Developed with ❤️ for public exam students</p>

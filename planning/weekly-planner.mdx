@@ -1,0 +1,351 @@
+---
+title: Weekly Planner
+description: Set up a fixed weekly schedule with specific hours per day and automatic subject distribution
+---
+
+# Weekly Planner
+
+The weekly planner mode creates a **fixed weekly schedule** where you study specific subjects on predetermined days. This is ideal for students with predictable routines who can commit to studying at the same times each week.
+
+## Weekly Mode vs. Cycle Mode
+
+<Accordion title="When to use Weekly Mode">
+  Use weekly mode if:
+  - You have a consistent daily routine
+  - You prefer studying the same subjects on the same days (e.g., Math on Mondays)
+  - You want strict time blocking
+  - You can reliably study at scheduled times
+
+  Use cycle mode if:
+  - Your schedule varies day-to-day
+  - You want flexibility to study whenever possible
+  - You don't want to "miss" subjects if you skip a day
+</Accordion>
+
+## How Weekly Planning Works
+
+The weekly planner distributes subjects across your chosen days based on their relevance weights, creating a recurring pattern that repeats each week.
+
+### Setting Up Weekly Mode
+
+When you create a study plan with weekly mode (see `planejamento-wizard.js:460-478`), you configure:
+
+<Steps>
+  <Step title="Select active days">
+    Choose which days of the week you'll study (e.g., Monday through Friday)
+  </Step>
+  
+  <Step title="Set hours per day">
+    For each active day, specify how many hours you'll study using time inputs
+  </Step>
+  
+  <Step title="Define session limits">
+    Set minimum and maximum session durations (e.g., 30-120 minutes)
+  </Step>
+  
+  <Step title="Generate schedule">
+    The system creates a weekly pattern based on subject weights
+  </Step>
+</Steps>
+
+## Configuration Interface
+
+The wizard presents a day-by-day configuration (from `planejamento-wizard.js:463-477`):
+
+```html
+<!-- From the weekly mode step -->
+<div style="display:flex; flex-direction:column; gap:12px;">
+  ${days.map((d, i) => {
+    const ativo = draft.horarios.diasAtivos.includes(i);
+    return `
+      <div style="display:flex; align-items:center; gap:16px;">
+        <label>
+          <input type="checkbox" ${ativo ? 'checked' : ''} onchange="pwToggleDay(${i})">
+          <span>${d}</span>
+        </label>
+        <input type="time" 
+          value="${draft.horarios.horasPorDia[i] || ''}" 
+          oninput="pwUpdateDayHour(${i}, this.value)"
+          ${ativo ? '' : 'disabled'}>
+      </div>
+    `
+  }).join('')}
+</div>
+```
+
+### Example Configuration
+
+| Day | Active | Study Time |
+|-----|--------|------------|
+| Monday | ✓ | 03:00 |
+| Tuesday | ✓ | 02:30 |
+| Wednesday | ✓ | 03:00 |
+| Thursday | ✓ | 02:00 |
+| Friday | ✓ | 03:30 |
+| Saturday | ✓ | 04:00 |
+| Sunday | ✗ | - |
+
+**Total**: 18 hours/week
+
+## Subject Distribution Algorithm
+
+The weekly planner uses the same relevance-based distribution as cycle mode (see `logic.js:610-651`):
+
+```javascript
+// From logic.js:613-650
+if (plan.tipo === 'semanal') {
+  let maxSessao = parseInt(plan.horarios.sessaoMax, 10) || 120;
+  let minSessao = parseInt(plan.horarios.sessaoMin, 10) || 30;
+  let totalMinutes = 0;
+
+  // Calculate total weekly minutes from active days
+  for (let i = 0; i < 7; i++) {
+    if (plan.horarios.diasAtivos.includes(i) && plan.horarios.horasPorDia[i]) {
+      const [hh, mm] = plan.horarios.horasPorDia[i].split(':');
+      totalMinutes += (parseInt(hh, 10) * 60) + parseInt(mm, 10);
+    }
+  }
+
+  // Sort subjects by relevance weight
+  const sortedDiscs = [...plan.disciplinas].sort((a, b) => {
+    const wA = plan.relevancia[a]?.peso || 0;
+    const wB = plan.relevancia[b]?.peso || 0;
+    return wB - wA;
+  });
+
+  // Distribute time to each subject based on percentage
+  sortedDiscs.forEach(discId => {
+    const perc = plan.relevancia[discId]?.percentual || 0;
+    let targetMinutes = Math.round((perc / 100) * totalMinutes);
+
+    if (targetMinutes < minSessao) targetMinutes = minSessao;
+
+    // Break into blocks
+    let remaining = targetMinutes;
+    while (remaining > 0) {
+      let block = Math.min(remaining, maxSessao);
+      if (block < minSessao && remaining === targetMinutes) {
+        block = minSessao;
+      } else if (block < minSessao && remaining < targetMinutes) {
+        break; // Drop small tail blocks
+      }
+      plan.sequencia.push({
+        id: 'seq_' + uid(),
+        discId: discId,
+        minutosAlvo: block,
+        concluido: false
+      });
+      remaining -= block;
+    }
+  });
+}
+```
+
+### Distribution Example
+
+If you have 18 hours/week and three subjects with these weights:
+
+- **Mathematics**: 40% relevance → 7.2 hours/week
+- **Portuguese**: 35% relevance → 6.3 hours/week
+- **History**: 25% relevance → 4.5 hours/week
+
+The system creates blocks (e.g., with 120-min max sessions):
+
+- Math: 4 blocks of 120 min, 1 block of 60 min
+- Portuguese: 3 blocks of 120 min, 1 block of 90 min
+- History: 2 blocks of 120 min, 1 block of 30 min
+
+## Automatic Event Generation
+
+Weekly mode generates events for the next 14 days, respecting your active days:
+
+```javascript
+// From logic.js:730-762
+for (let diasOffset = 0; diasOffset < 14; diasOffset++) {
+  const d = new Date(today);
+  d.setDate(d.getDate() + diasOffset);
+  const dayOfWeek = d.getDay();
+
+  // Skip inactive days in weekly mode
+  if (state.planejamento.tipo === 'semanal' && 
+      state.planejamento.horarios && 
+      state.planejamento.horarios.diasAtivos) {
+    if (!state.planejamento.horarios.diasAtivos.includes(dayOfWeek)) continue;
+  }
+
+  const dtStr = getLocalDateStr(d);
+
+  // Create events for this day
+  for (let m = 0; m < materiasPorDia; m++) {
+    const seqItem = seq[currentSeqIdx];
+    // ... create event
+    currentSeqIdx = (currentSeqIdx + 1) % seq.length;
+  }
+}
+```
+
+<Note>
+In weekly mode, events are **only created for active days**. If Monday is inactive, no events will be scheduled for Mondays.
+</Note>
+
+## Setting Hours Per Day
+
+Hours are set using HTML5 time inputs that format as `HH:MM`:
+
+```javascript
+// From planejamento-wizard.js:152-155
+window.pwUpdateDayHour = function (dayIdx, val) {
+  draft.horarios.horasPorDia[dayIdx] = val;
+  pwUpdateButtons(); // Validate inputs
+};
+```
+
+### Input Format
+
+- **Format**: `HH:MM` (24-hour format)
+- **Examples**: 
+  - `02:30` = 2 hours 30 minutes
+  - `01:00` = 1 hour
+  - `00:45` = 45 minutes
+
+<Warning>
+All active days must have a valid time value. The "Next" button will be disabled if any active day has an empty time field.
+</Warning>
+
+## Validation Rules
+
+The weekly planner validates your configuration (see `planejamento-wizard.js:222-230`):
+
+```javascript
+if (draft.tipo === 'ciclo') {
+  const hs = parseFloat(draft.horarios.horasSemanais) || 0;
+  return hs > 0 && draft.horarios.diasAtivos.length > 0;
+} else {
+  // Weekly mode validation
+  let hasTime = false;
+  for (let i = 0; i < 7; i++) {
+    const val = draft.horarios.horasPorDia[i];
+    if (val && val.trim() !== '' && draft.horarios.diasAtivos.includes(i)) {
+      hasTime = true;
+    }
+  }
+  return hasTime && draft.horarios.diasAtivos.length > 0;
+}
+```
+
+**Requirements**:
+- ✓ At least one active day
+- ✓ At least one day with study time > 0
+- ✓ Minimum session ≥ 1 minute
+- ✓ Maximum session ≥ minimum session
+
+## Day Toggle Functionality
+
+Toggling days on/off:
+
+```javascript
+// From planejamento-wizard.js:137-145
+window.pwToggleDay = function (dayIndex) {
+  const idx = parseInt(dayIndex, 10);
+  if (draft.horarios.diasAtivos.includes(idx)) {
+    // Remove from active days
+    draft.horarios.diasAtivos = draft.horarios.diasAtivos.filter(d => d !== idx);
+  } else {
+    // Add to active days
+    draft.horarios.diasAtivos.push(idx);
+  }
+  renderStep(); // Re-render with updated state
+};
+```
+
+When you deactivate a day:
+- Its time input is disabled (grayed out)
+- It's excluded from total weekly hours calculation
+- No events are generated for that day
+
+## Subjects Per Day Setting
+
+The `materiasPorDia` config controls how many different subjects you study each day:
+
+```javascript
+const materiasPorDia = state.config.materiasPorDia || 3;
+```
+
+**Effects**:
+- `materiasPorDia: 1` → One subject per day (focused)
+- `materiasPorDia: 3` → Three subjects per day (balanced, default)
+- `materiasPorDia: 5` → Five subjects per day (variety)
+
+<Accordion title="Choosing the right value">
+  **Lower values (1-2)**: Better for deep focus sessions, less context switching, but slower rotation through all subjects.
+  
+  **Medium values (3-4)**: Balanced approach, good variety while maintaining focus.
+  
+  **Higher values (5+)**: Maximum subject coverage, but more context switching and shorter sessions per subject.
+</Accordion>
+
+## Editing Hours for Existing Plans
+
+To modify an existing weekly plan:
+
+1. Open the planning wizard
+2. The wizard loads your current configuration
+3. Make changes to hours or active days
+4. Save to regenerate the schedule
+
+```javascript
+// From planejamento-wizard.js:20-30
+if (state.planejamento && state.planejamento.tipo) {
+  // Load existing plan
+  draft = JSON.parse(JSON.stringify({
+    tipo: state.planejamento.tipo || null,
+    disciplinas: state.planejamento.disciplinas || [],
+    relevancia: state.planejamento.relevancia || {},
+    horarios: state.planejamento.horarios || { /* defaults */ }
+  }));
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Match your real availability">
+    Be realistic about how many hours you can actually study each day. Overestimating leads to guilt and burnout.
+  </Step>
+  
+  <Step title="Include buffer time">
+    Don't schedule every available minute. Leave room for breaks, unexpected events, and rest.
+  </Step>
+  
+  <Step title="Consider energy levels">
+    Schedule more hours on days when you typically have more energy and focus.
+  </Step>
+  
+  <Step title="Plan for consistency">
+    It's better to study 2 hours every day than 14 hours on Sunday. Consistency beats intensity.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### "Next" button is disabled
+
+**Cause**: Validation failed. Check:
+- At least one day is active (checkbox checked)
+- All active days have a time value entered
+- Min session < max session
+
+### Too many/few subjects per day
+
+This is controlled by `materiasPorDia` in Settings, not in the wizard. Change it in:
+- Settings → Study Configuration → Subjects per Day
+
+### Events not appearing on inactive days
+
+This is expected behavior. Weekly mode only creates events for days you've marked as active.
+
+## See Also
+
+- [Study Cycles](/planning/study-cycles) - Alternative flexible scheduling approach
+- [Relevance Weights](/planning/relevance-weights) - How time is distributed among subjects
+- [Scheduling](/planning/scheduling) - How automatic events are created

@@ -1,0 +1,219 @@
+---
+title: "Study Organizer (MED)"
+description: "Daily study session organizer - Meus Estudos do Dia (MED) - to plan, track, and complete your study events"
+---
+
+## Overview
+
+The **Study Organizer** (MED - Meus Estudos do Dia) is the central hub for managing your daily study sessions. It shows all events scheduled for today, separates pending tasks from completed ones, and provides real-time statistics about your study time.
+
+<Info>
+  MED is based on the **PDCA Cycle**: Plan in the Calendar, Execute in the Study Organizer, Measure in the Dashboard, and Adjust with Revisions.
+</Info>
+
+## Key Features
+
+### Real-Time Dashboard
+
+The MED view displays three critical metrics at the top:
+
+- **Total Study Time Today**: Accumulated time from all completed sessions
+- **Pending Events**: Number of scheduled events not yet studied
+- **Top Focus**: The subject/topic with the most study time invested today
+
+### Event Organization
+
+Events are automatically organized into two sections:
+
+1. **Scheduled for Today** (📌): Events with status `agendado` (scheduled) or `atrasado` (overdue)
+2. **Studied Today** (✅): Events marked as completed with status `estudei`
+
+## Using the Study Organizer
+
+<Steps>
+  <Step title="Navigate to Study Organizer">
+    Click on **Study Organizer** in the sidebar or use the MED navigation button. The page displays all events for the current date.
+  </Step>
+
+  <Step title="Start a Study Session">
+    Click the play button (▶) on any scheduled event to start the timer. The timer begins counting immediately and the interface updates in real-time.
+
+    ```js
+    // Timer activation (views.js:323)
+    toggleTimer(evento.id)
+    ```
+  </Step>
+
+  <Step title="Monitor Progress">
+    Watch your accumulated time update live on the event card. The timer displays in HH:MM:SS format and includes visual indicators for active timers.
+
+    <Note>
+      Active timers show a pulsing indicator with the text "● Cronômetro ativo"
+    </Note>
+  </Step>
+
+  <Step title="Complete the Session">
+    Click the checkmark button (✅) when finished. This opens the **Session Registration** modal where you can record detailed information about what you studied.
+  </Step>
+
+  <Step title="Review Completed Sessions">
+    Completed events move to the "Studied Today" section, showing the total time invested and preserving all session data.
+  </Step>
+</Steps>
+
+## Event Card Actions
+
+Each event card provides quick actions:
+
+| Action | Icon | Description |
+|--------|------|-------------|
+| **Start/Pause Timer** | ▶ / ⏸ | Toggle timer on/off for the event |
+| **Mark as Studied** | ✅ | Complete the session and open registration form |
+| **Delete Event** | 🗑 | Remove the event permanently |
+| **View Details** | (Click card) | Open detailed event information modal |
+
+## Statistics Display
+
+```js
+// MED statistics calculation (views.js:330-358)
+const today = todayStr();
+const todayEvents = state.eventos.filter(e => e.data === today);
+const agendados = todayEvents.filter(e => e.status !== 'estudei');
+const estudados = todayEvents.filter(e => e.status === 'estudei');
+const totalSeconds = estudados.reduce((s, e) => s + (e.tempoAcumulado || 0), 0);
+```
+
+The stats row shows:
+- **Total Time**: Sum of `tempoAcumulado` from all completed events
+- **Pending Events**: Count of non-completed events for today
+- **Best Focus**: Event with highest accumulated time
+
+## Adding New Events
+
+<Steps>
+  <Step title="Click Add Event">
+    Use the "+ Iniciar Estudo" button in the top-right corner or the floating action button.
+  </Step>
+
+  <Step title="Fill Event Details">
+    - **Title**: Name of the study session
+    - **Date**: Defaults to today
+    - **Duration**: Planned study time in minutes
+    - **Discipline**: Select from your exam syllabi
+    - **Topic**: Choose a specific subject or lesson
+  </Step>
+
+  <Step title="Start Immediately (Optional)">
+    Check "Iniciar automaticamente" to begin the timer right after creating the event.
+  </Step>
+</Steps>
+
+## Empty State
+
+When no events exist for today, MED displays a helpful empty state:
+
+```jsx
+<div class="empty-state">
+  <div class="icon">📅</div>
+  <h4>Nenhum evento para hoje</h4>
+  <p>Adicione eventos de estudo para começar a registrar seu tempo.</p>
+  <button onclick="openAddEventModal()">+ Adicionar Evento</button>
+</div>
+```
+
+## Surgical DOM Updates
+
+The Study Organizer uses optimized rendering to update only changed elements:
+
+```js
+// Refresh only the event card without re-rendering entire view (views.js:386-395)
+export function refreshEventCard(eventId) {
+  const el = document.querySelector(`[data-event-id="${eventId}"]`);
+  if (!el) { renderCurrentView(); return; }
+  const ev = state.eventos.find(e => e.id === eventId);
+  if (!ev) { el.remove(); return; }
+  const tmp = document.createElement('div');
+  tmp.innerHTML = renderEventCard(ev);
+  el.replaceWith(tmp.firstElementChild);
+  reattachTimers();
+}
+```
+
+<Warning>
+  The MED view automatically refreshes when events change status. If you notice stale data, try navigating away and back to force a full refresh.
+</Warning>
+
+## Integration with Other Features
+
+### Timer & Pomodoro
+Events in MED integrate directly with the [Timer/Pomodoro](/features/timer-pomodoro) system. Starting a timer from MED automatically syncs with the Cronômetro view.
+
+### Session Registration
+Completing an event opens a registration modal that captures detailed study metrics including questions answered, pages read, and study notes.
+
+### Dashboard Analytics
+All completed events flow into the [Dashboard](/features/dashboard) for performance analytics and trend visualization.
+
+### Revision System
+Marking a topic as completed in MED triggers the [Spaced Repetition](/features/revisions) schedule automatically.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Plan Events in Advance">
+    Create events the night before or use the Calendar view to schedule your week. This gives you a clear roadmap when you open MED each morning.
+  </Accordion>
+
+  <Accordion title="Use Realistic Durations">
+    Set achievable duration targets (30-90 minutes). The system tracks actual time separately from planned time, helping you calibrate future estimates.
+  </Accordion>
+
+  <Accordion title="Complete Sessions Promptly">
+    Mark events as studied immediately after finishing. This ensures accurate time tracking and prevents forgetting session details.
+  </Accordion>
+
+  <Accordion title="Review Daily Progress">
+    Check the "Studied Today" section at the end of each day to review what you accomplished and plan for tomorrow.
+  </Accordion>
+</AccordionGroup>
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl/Cmd + N` | Add new event |
+| Click event card | View event details |
+| Click timer button | Start/pause timer |
+
+## Technical Details
+
+### Data Structure
+
+```js
+// Event object structure (store.js)
+{
+  id: 'ev_1234567890',
+  titulo: 'Direito Constitucional - Direitos Fundamentais',
+  data: '2026-03-03',
+  duracao: 90, // planned minutes
+  status: 'agendado' | 'atrasado' | 'estudei',
+  tempoAcumulado: 0, // actual seconds studied
+  _timerStart: null, // timestamp when timer started
+  discId: 'disc_abc',
+  assId: 'ass_xyz',
+  tipo: 'conteudo',
+  criadoEm: '2026-03-03T09:00:00.000Z'
+}
+```
+
+### Status Logic
+
+```js
+// Event status calculation (utils.js)
+export function getEventStatus(evento) {
+  if (evento.status === 'estudei') return 'estudei';
+  const today = todayStr();
+  if (evento.data < today) return 'atrasado';
+  return 'agendado';
+}
+```

@@ -1,0 +1,349 @@
+---
+title: Relevance Weights
+description: Understand how to set importance and knowledge levels for subjects and how the algorithm calculates study time distribution
+---
+
+# Relevance Weights
+
+Relevance weights determine how study time is distributed among your subjects. The algorithm prioritizes subjects that are **highly important** but where you have **low current knowledge** — the sweet spot for maximum learning impact.
+
+## The Weight Formula
+
+The relevance weight is calculated using a simple but effective formula (see `logic.js:537-559`):
+
+```javascript
+export function calculateRelevanceWeights(relevanciaDraft) {
+  let totalPeso = 0;
+  const result = {};
+
+  for (const discId in relevanciaDraft) {
+    const r = relevanciaDraft[discId];
+    const imp = parseInt(r.importancia, 10) || 3;
+    const con = parseInt(r.conhecimento, 10) || 3;
+
+    // Knowledge 0 → Factor 6 (most attention needed)
+    // Knowledge 5 → Factor 1 (least attention needed)
+    const fatorConhecimento = 6 - con;
+    const peso = imp * fatorConhecimento;
+
+    result[discId] = { importancia: imp, conhecimento: con, peso };
+    totalPeso += peso;
+  }
+
+  // Calculate percentage of total time
+  for (const discId in result) {
+    result[discId].percentual = totalPeso > 0 
+      ? (result[discId].peso / totalPeso) * 100 
+      : 0;
+  }
+
+  return result;
+}
+```
+
+### Formula Breakdown
+
+<Steps>
+  <Step title="Knowledge Factor">
+    Convert knowledge level to a factor: `fatorConhecimento = 6 - conhecimento`
+    
+    - Knowledge 0 (beginner) → Factor 6
+    - Knowledge 1 → Factor 5
+    - Knowledge 2 → Factor 4
+    - Knowledge 3 (medium) → Factor 3
+    - Knowledge 4 → Factor 2
+    - Knowledge 5 (master) → Factor 1
+  </Step>
+  
+  <Step title="Calculate Weight">
+    Multiply importance by knowledge factor: `peso = importancia × (6 - conhecimento)`
+  </Step>
+  
+  <Step title="Normalize to Percentage">
+    Sum all weights, then calculate each subject's percentage of total time
+  </Step>
+</Steps>
+
+## Setting Importance
+
+Importance represents **how critical this subject is for your exam or goals**.
+
+### Scale: 1 to 5
+
+| Level | Meaning | When to Use |
+|-------|---------|-------------|
+| **1** | Low importance | Optional topics, rarely appears on exam |
+| **2** | Below average | Minor section, low point value |
+| **3** | Medium importance | Standard subject, balanced weight |
+| **4** | High importance | Major section, high point value |
+| **5** | Critical | Core subject, highest exam weight |
+
+<Note>
+Importance should reflect the **exam's weighting**, not your personal interest. Study what the test values most.
+</Note>
+
+### UI Implementation
+
+The wizard presents sliders for each subject (from `planejamento-wizard.js:342-354`):
+
+```html
+<div style="flex:1; min-width:150px;">
+  <div style="display:flex; justify-content:space-between;">
+    <span>Importância (Peso da prova)</span>
+    <span id="pw-lbl-importancia-${d.disc.id}">${rel.importancia}</span>
+  </div>
+  <input type="range" 
+    min="1" 
+    max="5" 
+    value="${rel.importancia}" 
+    oninput="pwUpdateRel('${d.disc.id}', 'importancia', this.value)">
+  <div style="display:flex; justify-content:space-between;">
+    <span>Baixa</span><span>Alta</span>
+  </div>
+</div>
+```
+
+## Setting Knowledge Level
+
+Knowledge represents **your current mastery** of the subject.
+
+### Scale: 0 to 5
+
+| Level | Meaning | Description |
+|-------|---------|-------------|
+| **0** | Complete beginner | Never studied this before |
+| **1** | Basic familiarity | Seen the topics, very weak understanding |
+| **2** | Elementary | Can recognize concepts, can't apply them |
+| **3** | Intermediate | Decent understanding, some gaps |
+| **4** | Advanced | Strong grasp, minor weak points |
+| **5** | Mastery | Expert level, could teach others |
+
+<Warning>
+Be honest about your knowledge level. Overestimating reduces the time allocated to subjects where you actually need more practice.
+</Warning>
+
+### Knowledge Factor Impact
+
+The formula `6 - conhecimento` creates an **inverse relationship**:
+
+- **Lower knowledge** → **Higher factor** → **More time allocated**
+- **Higher knowledge** → **Lower factor** → **Less time allocated**
+
+This ensures you spend more time on subjects you haven't mastered.
+
+## Real-Time Weight Preview
+
+The wizard shows a live preview of time distribution (see `planejamento-wizard.js:384-415`):
+
+```javascript
+window.pwRenderWeightPreview = function () {
+  const el = document.getElementById('pw-weight-preview');
+  if (!el) return;
+
+  let totalPeso = 0;
+  const computed = [];
+  const selected = getAllDisciplinas().filter(d => 
+    draft.disciplinas.includes(d.disc.id)
+  );
+
+  // Calculate weights
+  selected.forEach(d => {
+    const r = draft.relevancia[d.disc.id] || { importancia: 3, conhecimento: 3 };
+    const peso = r.importancia * (6 - r.conhecimento);
+    totalPeso += peso;
+    computed.push({ name: d.disc.nome, color: d.edital.cor, peso });
+  });
+
+  // Sort by weight (highest first)
+  computed.sort((a, b) => b.peso - a.peso);
+
+  // Display percentages
+  el.innerHTML = computed.map(c => {
+    const pct = totalPeso > 0 ? ((c.peso / totalPeso) * 100).toFixed(1) : 0;
+    return `
+      <div>
+        <div style="display:flex; justify-content:space-between;">
+          <span>${esc(c.name)}</span>
+          <span style="font-weight:600;">${pct}%</span>
+        </div>
+        <div style="height:4px; background:rgba(255,255,255,0.05);">
+          <div style="height:100%; width:${pct}%; background:${c.color};"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+};
+```
+
+This preview updates **instantly** as you adjust sliders, showing exactly how much time each subject will receive.
+
+## Weight Calculation Examples
+
+### Example 1: Balanced Distribution
+
+**Setup**: 3 subjects, all equal importance (3), all equal knowledge (3)
+
+| Subject | Importance | Knowledge | Factor | Weight | % Time |
+|---------|------------|-----------|--------|--------|--------|
+| Math | 3 | 3 | 3 | 9 | 33.3% |
+| Portuguese | 3 | 3 | 3 | 9 | 33.3% |
+| History | 3 | 3 | 3 | 9 | 33.3% |
+
+**Result**: Perfectly balanced — 33.3% time to each subject.
+
+### Example 2: Prioritizing Weak Areas
+
+**Setup**: Math is critical but you're a beginner; History is less important and you know it well
+
+| Subject | Importance | Knowledge | Factor | Weight | % Time |
+|---------|------------|-----------|--------|--------|--------|
+| Math | 5 | 0 | 6 | **30** | **54.5%** |
+| Portuguese | 3 | 2 | 4 | 12 | 21.8% |
+| History | 2 | 5 | 1 | 2 | 3.6% |
+| Science | 4 | 3 | 3 | 12 | 21.8% |
+
+**Result**: Math gets the majority of time (54.5%) because it's both critical and unknown. History gets minimal time (3.6%) because you already know it well.
+
+### Example 3: All High Importance, Varied Knowledge
+
+**Setup**: Exam has 4 equally important sections, but you have different mastery levels
+
+| Subject | Importance | Knowledge | Factor | Weight | % Time |
+|---------|------------|-----------|--------|--------|--------|
+| Section A | 5 | 1 | 5 | 25 | 32.5% |
+| Section B | 5 | 2 | 4 | 20 | 26.0% |
+| Section C | 5 | 3 | 3 | 15 | 19.5% |
+| Section D | 5 | 4 | 2 | 10 | 13.0% |
+
+**Result**: Time is distributed based on knowledge gaps, with the weakest section getting the most attention.
+
+## When to Adjust Weights
+
+You should review and update your relevance weights:
+
+<Steps>
+  <Step title="After completing a study cycle">
+    Your knowledge has improved — update knowledge levels to redistribute time
+  </Step>
+  
+  <Step title="When exam priorities change">
+    If the exam syllabus is updated or you learn new weightings, adjust importance
+  </Step>
+  
+  <Step title="After practice tests">
+    Tests reveal true knowledge gaps — adjust knowledge levels based on performance
+  </Step>
+  
+  <Step title="When adding/removing subjects">
+    Rebalancing is automatic, but review to ensure distribution makes sense
+  </Step>
+</Steps>
+
+## Updating Weights
+
+Weights are updated through the planning wizard (see `planejamento-wizard.js:126-135`):
+
+```javascript
+window.pwUpdateRel = function (id, field, val) {
+  if (!draft.relevancia[id]) {
+    draft.relevancia[id] = { importancia: 3, conhecimento: 3 };
+  }
+  draft.relevancia[id][field] = parseInt(val, 10);
+
+  // Update label visual
+  const lbl = document.getElementById(`pw-lbl-${field}-${id}`);
+  if (lbl) lbl.textContent = val;
+
+  pwRenderWeightPreview(); // Refresh preview instantly
+};
+```
+
+Changes are reflected immediately in the preview panel.
+
+## Default Values
+
+When you select a subject, if it doesn't have weights set, it gets defaults:
+
+```javascript
+// From planejamento-wizard.js:93-95
+if (!draft.relevancia[id]) {
+  draft.relevancia[id] = { importancia: 3, conhecimento: 3 };
+}
+```
+
+**Defaults**: Importance 3 (medium), Knowledge 3 (intermediate)
+
+## Impact on Time Blocks
+
+After calculating percentages, the system converts them to actual study time:
+
+```javascript
+// Example for 30 hours/week cycle
+const totalMinutes = 30 * 60; // 1800 minutes
+
+// Subject with 40% weight
+const targetMinutes = Math.round((40 / 100) * 1800); // 720 minutes = 12 hours
+```
+
+These minutes are then split into blocks between min and max session times.
+
+## Visual Indicators
+
+The preview panel shows:
+
+- **Subject name**: Truncated if too long
+- **Percentage**: Calculated from weight
+- **Progress bar**: Visual representation using subject's color
+- **Sorted order**: Highest weight first
+
+## Best Practices
+
+<Steps>
+  <Step title="Start with honest self-assessment">
+    Don't inflate your knowledge level out of pride. Accuracy ensures proper time allocation.
+  </Step>
+  
+  <Step title="Use exam documentation">
+    Base importance on official exam weightings, point values, or question counts.
+  </Step>
+  
+  <Step title="Review regularly">
+    Update knowledge levels every 2-4 weeks as you improve.
+  </Step>
+  
+  <Step title="Don't neglect high-knowledge subjects">
+    Even with knowledge 5, a highly important subject (5) still gets weight 5 — not zero.
+  </Step>
+  
+  <Step title="Consider minimum session times">
+    Very low-weight subjects still get at least the minimum session duration.
+  </Step>
+</Steps>
+
+## Common Mistakes
+
+### Setting everything to 5/5
+
+If all subjects have max importance and max knowledge:
+- Weight = 5 × (6 - 5) = 5 for all
+- Result: Even distribution (not necessarily bad, but defeats the purpose)
+
+### Setting everything to 1/0
+
+If all subjects are low importance and zero knowledge:
+- Weight = 1 × 6 = 6 for all
+- Result: Even distribution again
+
+<Note>
+The algorithm works best when there's **variation** in your inputs. Honest assessment creates optimal distribution.
+</Note>
+
+### Never updating
+
+Static weights become inaccurate as you learn. Your knowledge level should increase over time, which naturally shifts focus to other subjects.
+
+## See Also
+
+- [Study Cycles](/planning/study-cycles) - How weights affect cycle sequencing
+- [Weekly Planner](/planning/weekly-planner) - How weights distribute time across the week
+- [Scheduling](/planning/scheduling) - How weighted blocks become calendar events

@@ -1,0 +1,358 @@
+---
+title: Application Settings
+description: Configure calendar views, study goals, revision frequencies, and other application-wide settings
+---
+
+## Overview
+
+Estudo Organizado provides extensive configuration options to customize your study experience. All settings are automatically saved to localStorage/IndexedDB and synced across devices when Google Drive sync is enabled.
+
+## Configuration Storage
+
+Settings are stored in the `state.config` object:
+
+```javascript
+// Example configuration structure
+state.config = {
+  tema: 'dark',                    // Theme name
+  darkMode: true,                  // Dark mode toggle
+  primeirodiaSemana: 1,           // Week start day (0=Sunday, 1=Monday)
+  frequenciaRevisao: [1, 7, 30, 90], // Revision intervals in days
+  metas: {                         // Weekly study goals
+    horasSemana: 20,
+    questoesSemana: 150
+  },
+  dataProva: '2026-06-15',        // Exam date
+  silentModeStart: 22,            // Notification quiet hours start
+  silentModeEnd: 8                // Notification quiet hours end
+}
+```
+
+## Calendar Settings
+
+### View Mode
+
+The calendar supports two view modes:
+
+<Accordion title="Month View (Mês)">
+  Displays a full month grid with:
+  - All days of the month
+  - Events shown as chips (up to 3 per day)
+  - Overflow indicator ("+N mais")
+  - Previous/next month filling
+  
+  ```javascript
+  // Set in views.js
+  export let calViewMode = 'mes';
+  export function setCalViewMode(mode) {
+    calViewMode = mode;
+    renderCurrentView();
+  }
+  ```
+</Accordion>
+
+<Accordion title="Week View (Semana)">
+  Displays 7 consecutive days with:
+  - Current week based on `calDate`
+  - All events for each day
+  - Quick add button per day
+  - More space for event details
+</Accordion>
+
+### Week Start Day
+
+Customize which day starts the week:
+
+```javascript
+// Configuration in state.config.primeirodiaSemana
+// 0 = Sunday (Domingo)
+// 1 = Monday (Segunda) - Default
+// 2 = Tuesday (Terça)
+// ... etc
+
+// Used in calendar rendering (views.js:496)
+const startDow = (firstDay.getDay() - (state.config.primeirodiaSemana || 1) + 7) % 7;
+```
+
+<Info>
+The default week starts on Monday (value: 1). This affects calendar display, weekly statistics, and study cycle planning.
+</Info>
+
+### Calendar Navigation
+
+Navigate through dates:
+
+```javascript
+// views.js:481-488
+export function calNavigate(dir) {
+  if (calViewMode === 'mes') {
+    calDate.setMonth(calDate.getMonth() + dir);
+  } else {
+    calDate.setDate(calDate.getDate() + dir * 7);
+  }
+  renderCurrentView();
+}
+```
+
+## Study Goals (Metas)
+
+Set weekly targets to track your progress:
+
+### Configuring Goals
+
+Use the prompt function to set goals:
+
+```javascript
+// app.js:213-247
+export function promptMetas() {
+  const horas = state.config.metas?.horasSemana || 20;
+  const quest = state.config.metas?.questoesSemana || 150;
+  
+  // Shows modal with inputs for:
+  // - Meta de Horas (por semana)
+  // - Meta de Questões (por semana)
+  
+  // Saves to state.config.metas
+  state.config.metas = {
+    horasSemana: h,
+    questoesSemana: q
+  };
+}
+```
+
+### Default Values
+
+| Goal | Default | Description |
+|------|---------|-------------|
+| Hours per week | 20h | Total study time target |
+| Questions per week | 150 | Practice questions target |
+
+### Goal Tracking
+
+Goals are tracked and displayed on the Home dashboard:
+
+```javascript
+// views.js:54-61 - Goal calculation
+const metaHoras = state.config.metas?.horasSemana || 20;
+const metaQuest = state.config.metas?.questoesSemana || 150;
+
+const horasFeitas = weekStats.totalSeconds / 3600;
+const percHoras = Math.min(100, Math.round((horasFeitas / metaHoras) * 100));
+
+const questFeitas = weekStats.totalQuestions;
+const percQuest = Math.min(100, Math.round((questFeitas / metaQuest) * 100));
+```
+
+<Note>
+Goal progress bars are shown on the Home view with real-time completion percentages.
+</Note>
+
+## Exam Date Configuration
+
+### Setting Your Exam Date
+
+Configure your target exam date for countdown tracking:
+
+```javascript
+// app.js:183-211
+export function promptDataProva() {
+  const atual = state.config.dataProva || '';
+  
+  // Input format: YYYY-MM-DD
+  // Example: "2026-06-15"
+  
+  if (nova.trim() === '') {
+    state.config.dataProva = null;  // Remove date
+  } else {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(nova)) {
+      state.config.dataProva = nova;
+    }
+  }
+}
+```
+
+### Countdown Display
+
+The exam date is displayed on the Home dashboard:
+
+```javascript
+// views.js:64-80 - Countdown calculation
+const dataProva = state.config.dataProva;
+if (dataProva) {
+  const today = new Date();
+  const provaDate = new Date(dataProva + 'T00:00:00');
+  const diffTime = provaDate - today;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (diffDays > 0) {
+    // Shows "X dias para a prova"
+  } else if (diffDays === 0) {
+    // Shows "É hoje! Boa sorte! 🍀"
+  } else {
+    // Shows "Prova já foi realizada há X dias"
+  }
+}
+```
+
+## Revision Frequency
+
+Configure spaced repetition intervals:
+
+```javascript
+// Default revision schedule (in days)
+state.config.frequenciaRevisao = [1, 7, 30, 90];
+
+// This creates review reminders:
+// - 1st review: 1 day after completion
+// - 2nd review: 7 days after completion
+// - 3rd review: 30 days after completion
+// - 4th review: 90 days after completion
+```
+
+### How It Works
+
+When you mark a subject as completed:
+
+1. System calculates revision dates based on `frequenciaRevisao`
+2. Adds completion date + each interval
+3. Displays on Revisões view with countdown
+4. Sends notifications when reviews are due
+
+```javascript
+// logic.js - calcRevisionDates function
+function calcRevisionDates(dataConclusao, revisoesFetas, adiamentos) {
+  const intervals = state.config.frequenciaRevisao || [1, 7, 30, 90];
+  const numRevsDone = revisoesFetas.length;
+  
+  if (numRevsDone >= intervals.length) return [];  // All revisions done
+  
+  const nextInterval = intervals[numRevsDone];
+  const baseDate = new Date(dataConclusao);
+  baseDate.setDate(baseDate.getDate() + nextInterval + (adiamentos || 0));
+  
+  return [formatDateStr(baseDate)];
+}
+```
+
+<Info>
+Revision frequencies are displayed on the Revisões dashboard and can be customized to match your learning style.
+</Info>
+
+## Notification Settings
+
+See [Notification System](/config/notifications) for detailed notification configuration including silent hours.
+
+## Dashboard Period Filter
+
+Control the time range for dashboard statistics:
+
+```javascript
+// views.js:653
+export let dashPeriod = 7; // default: last 7 days
+
+// Available options:
+// 7   - Last 7 days
+// 30  - Last 30 days
+// 90  - Last 3 months
+// null - All time
+
+export function setDashPeriod(p) {
+  dashPeriod = p;
+  renderCurrentView();
+}
+```
+
+This filters:
+- Study time statistics
+- Question counts
+- Habit tracking
+- Chart displays
+
+## Persistence and Syncing
+
+All settings are automatically saved:
+
+### Local Storage
+
+```javascript
+// Triggered after any config change
+import { scheduleSave } from './store.js';
+
+// Debounced save (500ms delay)
+scheduleSave();
+```
+
+### Cloud Sync
+
+Settings sync across devices when enabled:
+
+- **Google Drive**: Full state backup including all config
+- **Cloudflare**: Fast sync on startup (if configured)
+
+<Note>
+Configuration changes take effect immediately but are saved with a 500ms debounce to optimize performance.
+</Note>
+
+## Configuration Examples
+
+### Medical Student Setup
+
+```javascript
+state.config = {
+  tema: 'light',
+  primeirodiaSemana: 1,  // Monday
+  frequenciaRevisao: [1, 3, 7, 14, 30, 60],  // More frequent reviews
+  metas: {
+    horasSemana: 35,      // Higher study hours
+    questoesSemana: 300   // More practice questions
+  },
+  dataProva: '2027-01-15',
+  silentModeStart: 23,
+  silentModeEnd: 7
+}
+```
+
+### Working Professional Setup
+
+```javascript
+state.config = {
+  tema: 'dark',
+  primeirodiaSemana: 0,  // Sunday (weekend planning)
+  frequenciaRevisao: [1, 7, 30, 90],  // Standard intervals
+  metas: {
+    horasSemana: 15,      // Realistic for working schedule
+    questoesSemana: 75
+  },
+  dataProva: '2026-11-20',
+  silentModeStart: 22,
+  silentModeEnd: 8
+}
+```
+
+## Advanced Configuration
+
+### Predictive Statistics Parameters
+
+The system uses your goals to predict weekly performance:
+
+```javascript
+// logic.js - getPredictiveStats
+const metaHoras = state.config.metas?.horasSemana || 20;
+
+// Calculates:
+// - Burn rate (daily average)
+// - Projected completion percentage
+// - Status (verde/amarelo/vermelho)
+// - Suggestions for improvement
+```
+
+Status thresholds:
+- **Verde (Green)**: Projected ≥ 90% of goal
+- **Amarelo (Yellow)**: Projected 70-89% of goal
+- **Vermelho (Red)**: Projected < 70% of goal
+
+## Related Documentation
+
+- [Theme Customization](/config/themes) - Visual appearance settings
+- [Notification System](/config/notifications) - Alert and reminder configuration
+- [Google Drive Sync](/sync/google-drive) - Cloud backup settings

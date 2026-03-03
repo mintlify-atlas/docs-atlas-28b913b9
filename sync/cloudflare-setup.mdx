@@ -1,0 +1,304 @@
+---
+title: Cloudflare Workers Sync Setup
+description: Complete guide to setting up real-time synchronization using Cloudflare Workers and KV storage for edge-based sync across all your devices.
+---
+
+# Cloudflare Workers Sync Setup
+
+Transform Estudo Organizado into a fullstack serverless application using **Cloudflare Pages** for hosting and **Cloudflare Workers + KV** for real-time synchronization across mobile, tablet, and PC.
+
+## Architecture Overview
+
+The Cloudflare sync implements a **Primary/Secondary pattern** for optimal performance:
+
+- **Layer 0 (Core)**: IndexedDB Local (0ms latency)
+- **Layer 1 (Edge Network)**: Push/Pull via Cloudflare Workers (less than 150ms latency)
+- **Layer 2 (Backup)**: Google Drive intermittent backup (failsafe)
+
+<Note>
+This setup takes approximately 5-10 minutes and provides ultra-fast synchronization at the edge with automatic conflict resolution based on timestamps.
+</Note>
+
+## Prerequisites
+
+- GitHub account with your Estudo Organizado repository
+- Cloudflare account (free tier works)
+- Access to the `scripts/cloudflare-worker.js` file in your project
+
+## Part A: Deploy to Cloudflare Pages
+
+Host your application on Cloudflare's global edge network.
+
+<Steps>
+  <Step title="Access Cloudflare Dashboard">
+    Go to the [Cloudflare Dashboard](https://dash.cloudflare.com/) and sign in or create your account.
+  </Step>
+
+  <Step title="Create Pages Application">
+    1. In the left menu, go to **Workers & Pages**
+    2. Click the blue **Create Application** button
+    3. Switch to the **Pages** tab
+  </Step>
+
+  <Step title="Connect to Git">
+    1. Click **Connect to Git**
+    2. Authorize Cloudflare to access your GitHub account
+    3. Select your `estudo-organizado` repository
+    4. Click **Begin setup**
+  </Step>
+
+  <Step title="Configure Build Settings">
+    On the *Set up builds and deployments* screen:
+    
+    - **Project name**: `estudo-organizado` (or your preferred name)
+    - **Framework preset**: None (vanilla HTML/JS)
+    - **Build command**: Leave blank
+    - **Build output directory**: `src`
+
+    <Warning>
+    The `src` directory setting is critical! Cloudflare needs to know this is your root directory.
+    </Warning>
+  </Step>
+
+  <Step title="Deploy">
+    1. Click **Save and Deploy**
+    2. Wait about 1 minute for deployment to complete
+    3. You'll receive your public URL (e.g., `https://estudo-organizado.pages.dev`)
+    4. Save this URL - you can access your app from any device!
+  </Step>
+</Steps>
+
+## Part B: Create KV Namespace
+
+Set up the ultra-fast key-value storage for your data.
+
+<Steps>
+  <Step title="Navigate to KV">
+    In the Cloudflare sidebar, go to **Workers & Pages** → **KV**
+  </Step>
+
+  <Step title="Create Namespace">
+    1. Click the blue **Create a namespace** button
+    2. Name it: `ESTUDO_ORGANIZADO_KV`
+    3. Click **Add**
+  </Step>
+</Steps>
+
+<Note>
+Your KV namespace is now created and ready to store synchronized data at the edge.
+</Note>
+
+## Part C: Create the Sync API Worker
+
+Deploy the backend API that handles synchronization requests.
+
+<Steps>
+  <Step title="Create Worker">
+    1. In the sidebar, go to **Workers & Pages** → **Overview**
+    2. Click **Create Application**
+    3. Click the **Create Worker** button
+    4. Name it `estudo-sync-api`
+    5. Click **Deploy**
+  </Step>
+
+  <Step title="Edit Worker Code">
+    1. On the success screen, click **Edit code**
+    2. Delete all the "Hello World" boilerplate code
+    3. Open `scripts/cloudflare-worker.js` from your project
+    4. Copy all the code and paste it into the Cloudflare editor
+    5. Click **Deploy** (top right)
+  </Step>
+
+  <Step title="Return to Worker Overview">
+    Click the worker name at the top to return to the main worker page
+  </Step>
+</Steps>
+
+## Part D: Configure Security and Bindings
+
+Connect your Worker to the KV database and set up authentication.
+
+<Steps>
+  <Step title="Access Settings">
+    1. From your Worker's overview page, click the **Settings** tab
+    2. In the sidebar, click **Variables and Secrets**
+  </Step>
+
+  <Step title="Create Auth Token">
+    1. Click the blue **+ Add** button
+    2. Change **Type** from *Text* to **Secret**
+    3. **Variable name**: `AUTH_TOKEN` (must be uppercase)
+    4. **Value**: Enter a strong password (e.g., `SenhaMuitoForte123`)
+    5. Click **Add variable**
+
+    <Warning>
+    Keep this AUTH_TOKEN safe! You'll need it to configure the app. Never share it publicly.
+    </Warning>
+  </Step>
+
+  <Step title="Bind KV Namespace">
+    1. Scroll down to the **KV Namespace Bindings** section
+    2. Click **+ Add binding**
+    3. **Variable name**: `ESTUDO_KV` (must match exactly)
+    4. **KV namespace**: Select `ESTUDO_ORGANIZADO_KV`
+    5. Click **Save** or **Deploy**
+  </Step>
+</Steps>
+
+## Configure the Application
+
+Now connect your deployed app to the sync API.
+
+<Steps>
+  <Step title="Get Worker URL">
+    From your Worker's overview page, copy the Worker URL. It looks like:
+    
+    ```
+    https://estudo-sync-api.xxxx.workers.dev
+    ```
+  </Step>
+
+  <Step title="Configure in App">
+    1. Open your deployed application
+    2. Go to **Settings** (⚙️ icon)
+    3. Find the **Cloudflare Sync** section
+    4. Enter:
+       - **API URL**: Your Worker URL
+       - **Auth Token**: The password you created in Part D
+    5. Toggle **Enable Cloudflare Sync** to ON
+  </Step>
+
+  <Step title="Test Sync">
+    Click the **Sync Now** button to test the connection. You should see a success message!
+  </Step>
+</Steps>
+
+## How It Works
+
+### Automatic Synchronization
+
+The sync system automatically runs whenever you make changes:
+
+```javascript
+// From cloud-sync.js:104
+state.config._lastUpdated = Date.now();
+```
+
+Every change gets a timestamp to enable conflict resolution.
+
+### Conflict Resolution
+
+The system uses timestamp-based conflict resolution:
+
+```javascript
+// From cloud-sync.js:58-65
+const localTime = state.config._lastUpdated || 0;
+const remoteTime = remoteData.config._lastUpdated || 0;
+
+if (remoteTime > localTime) {
+    console.log('Cloud data is newer, applying...');
+    setState(remoteData);
+}
+```
+
+<Note>
+Devices with newer data always win. This prevents accidentally overwriting fresh changes with stale data.
+</Note>
+
+### Push and Pull Operations
+
+**Pull from Cloud:**
+
+```javascript
+export async function pullFromCloudflare() {
+    const response = await fetch(config.url, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${config.token}`
+        }
+    });
+    // Merge logic based on timestamps...
+}
+```
+
+**Push to Cloud:**
+
+```javascript
+export async function pushToCloudflare() {
+    state.config._lastUpdated = Date.now();
+    const payload = JSON.stringify(state);
+    
+    await fetch(config.url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.token}`
+        },
+        body: payload
+    });
+}
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Sync status shows 'HTTP Error: 401'">
+    Your AUTH_TOKEN is incorrect or not configured properly.
+    
+    1. Check that you entered the exact same token in both:
+       - Worker environment variables
+       - App settings
+    2. Verify the variable name is `AUTH_TOKEN` (uppercase)
+  </Accordion>
+
+  <Accordion title="Sync status shows 'HTTP Error: 500'">
+    The KV binding may not be configured correctly.
+    
+    1. Check Worker Settings → Variables
+    2. Verify KV Namespace Binding:
+       - Variable name: `ESTUDO_KV`
+       - Namespace: `ESTUDO_ORGANIZADO_KV`
+    3. Redeploy the worker after making changes
+  </Accordion>
+
+  <Accordion title="Changes not syncing across devices">
+    1. Ensure both devices have Cloudflare Sync enabled
+    2. Check that both are using the same API URL and token
+    3. Try manually clicking "Sync Now" on both devices
+    4. Check browser console for error messages
+  </Accordion>
+
+  <Accordion title="Worker not deploying">
+    1. Make sure you copied the complete `cloudflare-worker.js` code
+    2. Check for syntax errors in the editor
+    3. Try refreshing the page and redeploying
+  </Accordion>
+</AccordionGroup>
+
+## Benefits
+
+<CardGroup cols={2}>
+  <Card title="Ultra-Low Latency" icon="bolt">
+    Edge-based sync with less than 150ms response time worldwide
+  </Card>
+  <Card title="Automatic Conflicts" icon="shield-check">
+    Timestamp-based resolution prevents data loss
+  </Card>
+  <Card title="Always Available" icon="cloud">
+    Global CDN ensures your data is always accessible
+  </Card>
+  <Card title="Free Tier" icon="dollar-sign">
+    Generous free limits for personal use
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Google Drive Backup" icon="google" href="/sync/google-drive">
+    Add an additional backup layer with Google Drive
+  </Card>
+  <Card title="Manual Backup" icon="download" href="/sync/backup-restore">
+    Learn about JSON export/import for local backups
+  </Card>
+</CardGroup>

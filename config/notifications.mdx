@@ -1,0 +1,397 @@
+---
+title: Notification System
+description: Smart notification engine with permission handling, silent hours, and intelligent study reminders
+---
+
+## Overview
+
+Estudo Organizado includes an intelligent notification system that helps you stay on track with spaced repetitions and weekly study goals. The system respects silent hours and avoids notification spam through smart deduplication.
+
+## Notification Permissions
+
+### Permission States
+
+The notification system handles three permission states:
+
+```javascript
+// notifications.js:8-22
+export let hasNotificationPermission = false;
+
+export async function initNotifications() {
+  if (!('Notification' in window)) {
+    // Browser doesn't support notifications
+    hasNotificationPermission = false;
+  } else if (Notification.permission === 'granted') {
+    // User has already granted permission
+    hasNotificationPermission = true;
+  } else if (Notification.permission !== 'denied') {
+    // Request permission from user
+    const permission = await Notification.requestPermission();
+    hasNotificationPermission = permission === 'granted';
+  }
+}
+```
+
+### Browser Support
+
+| Browser | Support | Notes |
+|---------|---------|-------|
+| Chrome | ✅ Full | Requires HTTPS or localhost |
+| Firefox | ✅ Full | Requires HTTPS or localhost |
+| Safari | ✅ Full | iOS 16.4+ for web apps |
+| Edge | ✅ Full | Chromium-based |
+
+<Note>
+Notifications require user permission and HTTPS (or localhost for development). The app will fallback to in-app toast messages if notifications are unavailable.
+</Note>
+
+### Permission Request
+
+Permission is automatically requested when the app initializes:
+
+```javascript
+// app.js:143 - Called during init()
+initNotifications();
+
+// 5-second delay allows state to load first
+setTimeout(() => {
+  startNotificationEngine();
+}, 5000);
+```
+
+## Silent Hours (Modo Silencioso)
+
+Prevent notifications during sleep hours:
+
+### Configuration
+
+```javascript
+// Default silent hours: 22:00 (10 PM) to 08:00 (8 AM)
+state.config.silentModeStart = 22;  // 24-hour format
+state.config.silentModeEnd = 8;
+```
+
+### How It Works
+
+```javascript
+// notifications.js:30-41
+function isSilentHour() {
+  const horaAtual = new Date().getHours();
+  const silenciosoInicio = state.config?.silentModeStart || 22;
+  const silenciosoFim = state.config?.silentModeEnd || 8;
+  
+  if (silenciosoInicio > silenciosoFim) {
+    // Wraps around midnight (e.g., 22:00 to 08:00)
+    return horaAtual >= silenciosoInicio || horaAtual < silenciosoFim;
+  } else {
+    // Same day range (e.g., 14:00 to 18:00)
+    return horaAtual >= silenciosoInicio && horaAtual < silenciosoFim;
+  }
+}
+```
+
+<Info>
+Silent hours support overnight ranges. For example, 22-8 means notifications are blocked from 10 PM to 8 AM.
+</Info>
+
+## Notification Types
+
+### Revision Reminders
+
+Alerts for pending spaced repetition reviews:
+
+```javascript
+// notifications.js:72-80
+const revisoesPendentes = getPendingRevisoes();
+if (revisoesPendentes && revisoesPendentes.length > 0) {
+  const qtVencidas = revisoesPendentes.length;
+  fireNotification(
+    'Revisões Pendentes!',
+    `Você tem ${qtVencidas} assunto(s) pendente(s) de revisão espaçada. Mantenha sua memória fresca!`,
+    'alerta_revisao_diaria'
+  );
+}
+```
+
+**Triggers when:**
+- One or more subjects have pending reviews
+- Current time is outside silent hours
+- Notification hasn't been shown today
+
+### Weekly Goal Alerts
+
+Predictive notifications based on study pace:
+
+```javascript
+// notifications.js:82-101
+const metaHoras = state.config?.metas?.horasSemana || 20;
+const predStats = getPredictiveStats(metaHoras);
+
+// Alerts only activate Wed-Sat (days remaining ≤ 4)
+const isLateWeek = predStats.daysRemaining <= 4 && predStats.daysRemaining > 0;
+
+if (predStats.status === 'vermelho' && isLateWeek) {
+  fireNotification(
+    'Meta Semanal em Alto Risco ⚠️',
+    predStats.suggestion,
+    'alerta_risco_metas'
+  );
+} else if (predStats.status === 'amarelo' && isLateWeek) {
+  fireNotification(
+    'Atenção ao Ritmo 🟡',
+    predStats.suggestion,
+    'alerta_aviso_metas'
+  );
+}
+```
+
+**Status Colors:**
+- 🟢 **Verde (Green)**: On track (≥90% projected completion)
+- 🟡 **Amarelo (Yellow)**: At risk (70-89% projected)
+- 🔴 **Vermelho (Red)**: High risk (less than 70% projected)
+
+<Accordion title="Example Notification Messages">
+  Based on your study pace, the system generates contextual suggestions:
+  
+  **Green Status:**
+  - "Excelente! Você está no caminho certo para atingir sua meta."
+  
+  **Yellow Status:**
+  - "Atenção! Você precisa estudar 2h30min por dia nos próximos 4 dias para atingir sua meta."
+  
+  **Red Status:**
+  - "Alerta! Mesmo estudando 4h por dia, sua meta está difícil. Considere ajustar suas expectativas."
+</Accordion>
+
+## Spam Prevention
+
+The system prevents duplicate notifications:
+
+```javascript
+// notifications.js:10, 44-49
+let lastNotifiedKeys = new Set();
+
+function fireNotification(title, body, tagKey, requireInteraction = false) {
+  const todayStrKey = new Date().toLocaleDateString();
+  const uniqueKey = `${todayStrKey}-${tagKey}`;
+  
+  if (lastNotifiedKeys.has(uniqueKey)) return;  // Already shown today
+  
+  // ... show notification ...
+  
+  lastNotifiedKeys.add(uniqueKey);
+}
+```
+
+**Deduplication Strategy:**
+- Each notification has a unique `tagKey`
+- Keys are combined with current date
+- Same notification only shows once per day
+- Set resets on page reload
+
+## Notification Delivery
+
+### Native Notifications
+
+When permission is granted:
+
+```javascript
+// notifications.js:51-57
+if (hasNotificationPermission) {
+  new Notification(title, {
+    body: body,
+    icon: 'favicon.ico',      // PWA icon
+    tag: tagKey,              // Replaces same-tag notifications
+    requireInteraction: false // Auto-dismiss after timeout
+  });
+}
+```
+
+**Notification Properties:**
+- **Title**: Bold header text
+- **Body**: Detailed message (supports emoji)
+- **Icon**: App favicon from root directory
+- **Tag**: Prevents duplicate notifications
+- **Interaction**: Auto-dismisses (configurable)
+
+### Fallback: In-App Toasts
+
+If native notifications are unavailable:
+
+```javascript
+// notifications.js:58-63
+else {
+  document.dispatchEvent(new CustomEvent('app:showToast', {
+    detail: { 
+      msg: `🔔 ${title}: ${body}`, 
+      type: 'info', 
+      duration: 8000 
+    }
+  }));
+}
+```
+
+Fallback toasts:
+- Display in bottom-right corner
+- Show for 8 seconds (vs 3.5s for normal toasts)
+- Include bell emoji (🔔) prefix
+- Use info styling (blue background)
+
+## Notification Engine
+
+### Startup Behavior
+
+```javascript
+// notifications.js:104-113
+export function startNotificationEngine() {
+  // Initial check on boot
+  checkTriggers();
+  
+  // Recurring checks every 4 hours (14,400,000 ms)
+  if (notificationEngineInterval) clearInterval(notificationEngineInterval);
+  notificationEngineInterval = setInterval(() => {
+    checkTriggers();
+  }, 14400000);
+}
+```
+
+**Check Frequency:**
+- Immediate: On app initialization (after 5s delay)
+- Recurring: Every 4 hours while app is open
+- Skipped: During silent hours
+
+### Manual Trigger
+
+Notifications are checked when:
+
+```javascript
+// notifications.js:68-102
+function checkTriggers() {
+  if (isSilentHour()) return;  // Respect silent hours
+  
+  // 1. Check for pending revisions
+  // 2. Check weekly goal status (if Wed-Sat)
+}
+```
+
+<Note>
+The 4-hour interval ensures notifications stay current without excessive battery drain. Checks are skipped entirely during silent hours.
+</Note>
+
+## Implementation Example
+
+### Complete Flow
+
+```javascript
+// 1. App initialization (app.js:143)
+initNotifications();
+  // ↓ Requests permission
+  // ↓ Sets hasNotificationPermission
+  // ↓ Starts engine after 5s
+
+// 2. Engine starts (notifications.js:105)
+startNotificationEngine();
+  // ↓ Immediate checkTriggers()
+  // ↓ Sets 4-hour interval
+
+// 3. Each check (notifications.js:68)
+checkTriggers();
+  // ↓ Check if silent hour → return early
+  // ↓ Get pending revisions
+  // ↓ Calculate goal predictions
+  // ↓ Fire notifications as needed
+
+// 4. Fire notification (notifications.js:43)
+fireNotification(title, body, tagKey);
+  // ↓ Check if already shown today → return
+  // ↓ Check silent hours → return
+  // ↓ Show native or fallback
+  // ↓ Add to lastNotifiedKeys
+```
+
+## Configuration Reference
+
+### State Variables
+
+```javascript
+// Notification configuration in state.config
+{
+  silentModeStart: 22,    // Start hour (24h format)
+  silentModeEnd: 8,       // End hour (24h format)
+  metas: {                // Required for goal notifications
+    horasSemana: 20,
+    questoesSemana: 150
+  },
+  frequenciaRevisao: [1, 7, 30, 90]  // Required for revision notifications
+}
+```
+
+### Module Exports
+
+```javascript
+// Available from notifications.js
+export let hasNotificationPermission = false;
+export async function initNotifications() { ... }
+export function fireNotification(title, body, tagKey, requireInteraction) { ... }
+export function startNotificationEngine() { ... }
+```
+
+## Best Practices
+
+### For Users
+
+1. **Grant permission** for best experience
+2. **Configure silent hours** to match your sleep schedule
+3. **Set realistic goals** to avoid excessive alerts
+4. **Keep app open** for recurring checks (or use PWA)
+
+### For Developers
+
+1. Always check `isSilentHour()` before firing notifications
+2. Use unique `tagKey` values for each notification type
+3. Provide meaningful fallback messages for toasts
+4. Test across different browsers and permission states
+
+## PWA Support
+
+When installed as a Progressive Web App:
+
+- Notifications work even when browser is closed (on supported platforms)
+- Icon displays from `favicon.ico` or PWA manifest
+- Background sync can trigger notifications (if implemented)
+- Service worker enables offline notification queueing
+
+<Info>
+For full PWA notification support, ensure your manifest.json includes notification permission and the service worker is properly registered.
+</Info>
+
+## Troubleshooting
+
+### Notifications Not Appearing
+
+1. **Check permission**: Look for browser notification settings
+2. **Verify HTTPS**: Notifications require secure context
+3. **Test silent hours**: Ensure current time is outside configured range
+4. **Check console**: Look for Notification API errors
+5. **Try fallback**: In-app toasts should always work
+
+### Duplicate Notifications
+
+If you're seeing duplicates:
+- Check `lastNotifiedKeys` is working (should reset on reload)
+- Verify unique `tagKey` values
+- Ensure date formatting is consistent
+
+### Missing Notifications
+
+If notifications never fire:
+- Verify `state.config` has required fields
+- Check `getPendingRevisoes()` returns data
+- Ensure 4-hour interval hasn't been cleared
+- Test with `checkTriggers()` manually in console
+
+## Related Documentation
+
+- [Application Settings](/config/settings) - Configure goals and revision frequencies
+- [Theme Customization](/config/themes) - Visual appearance doesn't affect notifications
+- [Spaced Repetition](/features/revisions) - How revision reminders are calculated

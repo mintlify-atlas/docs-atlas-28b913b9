@@ -1,0 +1,243 @@
+---
+title: Theme Customization
+description: Customize the visual appearance of Estudo Organizado with multiple theme options including dark modes and color schemes
+---
+
+## Overview
+
+Estudo Organizado offers a comprehensive theming system that allows you to customize the visual appearance of the application. Choose from multiple pre-built themes or toggle between light and dark modes to match your study environment and preferences.
+
+## Available Themes
+
+The application includes 6 distinct themes, each with carefully crafted color palettes:
+
+<Accordion title="Light Mode (Default)">
+  The default light theme features:
+  - Clean white backgrounds (`--card: #ffffff`)
+  - Light gray base (`--bg: #f1f5f9`)
+  - Emerald green accent (`--accent: #10b981`)
+  - High contrast for readability
+  
+  Perfect for daytime studying in well-lit environments.
+</Accordion>
+
+<Accordion title="Dark Mode">
+  A modern dark theme with:
+  - Deep slate backgrounds (`--bg: #0f172a`, `--card: #1e293b`)
+  - Emerald green accent preserved
+  - Reduced eye strain for night studying
+  - Subtle shadows for depth
+</Accordion>
+
+<Accordion title="Furtivo (Stealth)">
+  A monochromatic black theme:
+  - Pure black background (`--bg: #000000`)
+  - White accent color (`--accent: #FFFFFF`)
+  - Minimal distractions
+  - Maximum contrast for OLED displays
+  
+  ```css
+  --bg: #000000
+  --card: #0A0A0A
+  --accent: #FFFFFF
+  --text-primary: #FFFFFF
+  ```
+</Accordion>
+
+<Accordion title="Abismo (Abyss)">
+  A deep navy theme with cyan accents:
+  - Marine blue backgrounds (`--bg: #020617`)
+  - Bright cyan highlights (`--accent: #06B6D4`)
+  - Ocean-inspired color palette
+  
+  ```css
+  --bg: #020617
+  --card: #0F172A
+  --accent: #06B6D4
+  ```
+</Accordion>
+
+<Accordion title="Grafite (Graphite)">
+  A sophisticated gray theme:
+  - Charcoal backgrounds (`--bg: #09090B`)
+  - Vibrant blue accent (`--accent: #3B82F6`)
+  - Professional appearance
+  
+  ```css
+  --bg: #09090B
+  --card: #18181B
+  --accent: #3B82F6
+  ```
+</Accordion>
+
+<Accordion title="Matrix">
+  A hacker-inspired green theme:
+  - Black background (`--bg: #000000`)
+  - Bright green accent (`--accent: #22C55E`)
+  - Terminal aesthetic
+  
+  ```css
+  --bg: #000000
+  --card: #111111
+  --accent: #22C55E
+  ```
+</Accordion>
+
+<Accordion title="Rubi (Ruby)">
+  A bold black and red theme:
+  - Pure black backgrounds
+  - Crimson red accent (`--accent: #DC2626`)
+  - High energy aesthetic
+  
+  ```css
+  --bg: #000000
+  --card: #0A0A0A
+  --accent: #DC2626
+  ```
+</Accordion>
+
+## How to Change Themes
+
+### Toggle Dark Mode
+
+The quick toggle button in the sidebar switches between light and dark modes:
+
+```javascript
+// In app.js - applyTheme function
+export function applyTheme(toggle = false) {
+  if (toggle) {
+    state.config.darkMode = !state.config.darkMode;
+    state.config.tema = state.config.darkMode ? 'dark' : 'light';
+    scheduleSave();
+  }
+  const theme = state.config.tema || (state.config.darkMode ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', theme);
+}
+```
+
+<Note>
+The theme toggle button in the sidebar shows "☀️ Modo claro" when dark mode is active, and "🌙 Modo escuro" when light mode is active.
+</Note>
+
+### Select Specific Themes
+
+Themes are applied by setting the `data-theme` attribute on the root HTML element:
+
+```javascript
+// Available theme values:
+// 'light', 'dark', 'furtivo', 'abismo', 'grafite', 'matrix', 'rubi'
+document.documentElement.setAttribute('data-theme', 'matrix');
+```
+
+## CSS Variables
+
+All themes use CSS custom properties for consistent styling:
+
+### Color Variables
+
+| Variable | Purpose | Example |
+|----------|---------|----------|
+| `--bg` | Main background | `#f1f5f9` |
+| `--card` | Card backgrounds | `#ffffff` |
+| `--accent` | Primary accent color | `#10b981` |
+| `--accent-light` | Light accent variant | `#d1fae5` |
+| `--accent-dark` | Dark accent variant | `#059669` |
+| `--text-primary` | Main text color | `#1e293b` |
+| `--text-secondary` | Secondary text | `#64748b` |
+| `--text-muted` | Muted text | `#94a3b8` |
+| `--border` | Border color | `#e2e8f0` |
+
+### Status Colors
+
+| Variable | Status | Color |
+|----------|--------|-------|
+| `--status-agendado` | Scheduled | Blue (`#3b82f6`) |
+| `--status-estudei` | Completed | Green (`#10b981`) |
+| `--status-atrasado` | Overdue | Red (`#ef4444`) |
+| `--status-nao` | Inactive | Gray (`#94a3b8`) |
+
+### Sidebar Colors
+
+| Variable | Purpose |
+|----------|----------|
+| `--sidebar-bg` | Sidebar background |
+| `--sidebar-hover` | Hover state |
+| `--sidebar-active` | Active item |
+| `--sidebar-text` | Default text |
+
+## Theme Persistence
+
+Themes are saved automatically to the application state:
+
+```javascript
+// Theme is stored in state.config
+state.config.tema = 'matrix';  // Specific theme
+state.config.darkMode = true;  // Dark mode toggle state
+
+// Saved to localStorage/IndexedDB via scheduleSave()
+scheduleSave();
+```
+
+<Info>
+Your theme preference is preserved across sessions and synced with Google Drive if enabled.
+</Info>
+
+## Accessibility Considerations
+
+### High Contrast Options
+
+- **Furtivo** and **Rubi** themes offer maximum contrast (black/white)
+- All themes maintain WCAG AA contrast ratios for text
+- Accent colors are optimized for visibility in both light and dark modes
+
+### Shadow System
+
+Themes include three shadow levels that adapt to the background:
+
+```css
+/* Light themes */
+--shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+
+/* Dark themes */
+--shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.6);
+--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.8);
+```
+
+## Customizing Themes
+
+You can create custom themes by modifying the CSS in `styles.css`:
+
+```css
+/* Example: Custom purple theme */
+[data-theme="custom"] {
+  --bg: #1a0a2e;
+  --card: #2d1b4e;
+  --accent: #a855f7;
+  --text-primary: #f5f3ff;
+  --text-secondary: #c4b5fd;
+  --border: #6d28d9;
+}
+```
+
+<Note>
+Custom themes require modifying the source CSS file. They will not be saved to your configuration automatically.
+</Note>
+
+## Best Practices
+
+1. **Choose based on environment**: Use light themes in bright spaces, dark themes in low light
+2. **Consider study duration**: Dark themes reduce eye strain during long sessions
+3. **Match your setup**: Coordinate with your monitor's color temperature
+4. **Test readability**: Ensure text is comfortable to read in your chosen theme
+
+## Related Settings
+
+Theme preferences are stored alongside other configuration options in:
+
+- `state.config.tema` - Current theme name
+- `state.config.darkMode` - Dark mode boolean state
+
+See [Application Settings](/config/settings) for more configuration options.

@@ -1,0 +1,388 @@
+---
+title: "Exam Syllabus Management (Editais)"
+description: "Organize exam syllabi with disciplines, topics, lessons, and progress tracking"
+---
+
+## Overview
+
+The **Editais** (Exam Syllabi) module is your central repository for managing civil service exam content. Create exams (editais), add disciplines, define topics, and track your progress through each subject.
+
+<Info>
+  Editais are the foundation of the app. Study events, revisions, and analytics all link back to the disciplines and topics defined here.
+</Info>
+
+## Core Concepts
+
+### Hierarchy
+
+```
+Edital (Exam)
+ ├── Disciplina (Discipline/Subject)
+ │   ├── Assuntos (Syllabus Topics from official exam)
+ │   │   ├── Assunto 1
+ │   │   ├── Assunto 2
+ │   │   └── ...
+ │   └── Aulas (Your study materials/lessons)
+ │       ├── Aula 1
+ │       ├── Aula 2
+ │       └── ...
+ └── Disciplina 2
+     └── ...
+```
+
+**Edital**: The exam you're preparing for (e.g., "TRF 2024", "INSS 2025")
+**Disciplina**: A subject within the exam (e.g., "Direito Constitucional", "Matemática")
+**Assunto**: Official syllabus topic from the exam notice
+**Aula**: Your personal study materials (video lessons, PDF chapters, etc.)
+
+## Data Structure
+
+### Edital Object
+
+```js
+{
+  id: 'edt_1234567890',
+  nome: 'TRF 2ª Região - Juiz Federal',
+  dataProva: '2026-06-15',
+  disciplinas: [
+    {
+      id: 'disc_abc',
+      nome: 'Direito Constitucional',
+      icone: '⚖️',
+      cor: '#3b82f6',
+      assuntos: [
+        {
+          id: 'ass_xyz',
+          nome: 'Direitos Fundamentais',
+          concluido: false,
+          dataConclusao: null,
+          revisoesFetas: [],
+          adiamentos: 0
+        }
+      ],
+      aulas: [
+        {
+          id: 'aul_123',
+          nome: 'Aula 01 - Introdução',
+          estudada: false,
+          fonte: 'Estratégia Concursos',
+          duracao: 90
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Editais Interface
+
+### Exam Cards
+
+Main view shows all exams as cards:
+
+```js
+// Exam card rendering (views.js - renderEditais function)
+state.editais.map(edital => {
+  const totalAssuntos = edital.disciplinas.reduce((s, d) => s + d.assuntos.length, 0);
+  const concluidos = edital.disciplinas.reduce((s, d) => 
+    s + d.assuntos.filter(a => a.concluido).length, 0);
+  const progresso = totalAssuntos > 0 ? Math.round((concluidos / totalAssuntos) * 100) : 0;
+  
+  return `
+    <div class="edital-card">
+      <h3>${edital.nome}</h3>
+      <div class="progress-bar" style="width:${progresso}%"></div>
+      <p>${concluidos}/${totalAssuntos} tópicos concluídos</p>
+    </div>
+  `;
+});
+```
+
+### Discipline List
+
+Click an exam to view its disciplines:
+
+- Icon and color
+- Discipline name
+- Progress bar (completed topics / total topics)
+- Action buttons (Edit, Delete, Open Dashboard)
+
+## Creating an Edital
+
+<Steps>
+  <Step title="Open Edital Modal">
+    In the Editais view, click "+ Novo Edital" in the top-right corner.
+  </Step>
+
+  <Step title="Enter Exam Details">
+    - **Nome**: Exam name (e.g., "TRF 2ª Região")
+    - **Data da Prova**: Exam date (optional, used for countdown)
+
+    ```js
+    const novoEdital = {
+      id: 'edt_' + Date.now(),
+      nome: nomeInput.value.trim(),
+      dataProva: dataProvaInput.value || null,
+      disciplinas: []
+    };
+    ```
+  </Step>
+
+  <Step title="Add Disciplines">
+    After creating the edital, click "+ Adicionar Disciplina" to add subjects.
+  </Step>
+
+  <Step title="Configure Each Discipline">
+    - **Nome**: Subject name
+    - **Ícone**: Emoji icon (choose from picker or type manually)
+    - **Cor**: Color for visual identification
+
+    ```js
+    const novaDisciplina = {
+      id: 'disc_' + Date.now(),
+      nome: 'Direito Constitucional',
+      icone: '⚖️',
+      cor: '#3b82f6',
+      assuntos: [],
+      aulas: []
+    };
+    ```
+  </Step>
+
+  <Step title="Add Topics (Assuntos)">
+    Click "+ Adicionar Assunto" within a discipline to add official syllabus topics:
+    
+    ```js
+    const novoAssunto = {
+      id: 'ass_' + uid(),
+      nome: 'Direitos Fundamentais - Art. 5º',
+      concluido: false,
+      dataConclusao: null,
+      revisoesFetas: [],
+      adiamentos: 0
+    };
+    
+    disciplina.assuntos.push(novoAssunto);
+    ```
+  </Step>
+
+  <Step title="Add Study Materials (Aulas)">
+    Optionally add your personal study materials (video lessons, PDF chapters):
+    
+    ```js
+    const novaAula = {
+      id: 'aul_' + uid(),
+      nome: 'Aula 03 - Estratégia Concursos',
+      estudada: false,
+      fonte: 'Estratégia Concursos',
+      duracao: 120 // minutes
+    };
+    
+    disciplina.aulas.push(novaAula);
+    ```
+  </Step>
+</Steps>
+
+## Bulk Import
+
+Import topics from a text list:
+
+<Steps>
+  <Step title="Prepare Text List">
+    Copy syllabus topics from the official exam notice, one per line:
+    
+    ```
+    Direitos Fundamentais
+    Organização do Estado
+    Poderes da União
+    Controle de Constitucionalidade
+    ```
+  </Step>
+
+  <Step title="Open Bulk Import">
+    In the discipline view, click "Importar em Lote" or similar option.
+  </Step>
+
+  <Step title="Paste and Confirm">
+    Paste your list and click "Importar". Each line becomes a new topic:
+    
+    ```js
+    const linhas = textarea.value.split('\n').filter(l => l.trim());
+    
+    linhas.forEach(linha => {
+      disciplina.assuntos.push({
+        id: 'ass_' + uid(),
+        nome: linha.trim(),
+        concluido: false
+      });
+    });
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  Bulk import is ideal for quickly populating a discipline from the official exam syllabus PDF.
+</Note>
+
+## Discipline Dashboard
+
+Click on a discipline to open its detailed dashboard:
+
+### Progress Overview
+- Total topics and completion percentage
+- Study time invested in this discipline
+- Question performance (correct/wrong)
+
+### Topic List
+- All assuntos with status badges (Pendente, Concluído, Revisão)
+- Click to view details or mark as complete
+- Color-coded priority (if using Banca Intelligence)
+
+### Lesson List (Aulas)
+- Personal study materials
+- Mark as studied
+- Link to create study events
+
+## Getting All Disciplines
+
+The app provides a utility to flatten all disciplines across exams:
+
+```js
+// Get all disciplines (logic.js:280-294)
+export function getAllDisciplinas() {
+  if (_discCache) return _discCache;
+  
+  const result = [];
+  _discIndex = new Map();
+  
+  for (const edital of state.editais) {
+    if (!edital.disciplinas) continue;
+    for (const disc of edital.disciplinas) {
+      const entry = { disc, edital };
+      result.push(entry);
+      _discIndex.set(disc.id, entry);
+    }
+  }
+  
+  _discCache = result;
+  return result;
+}
+```
+
+**Returns:** Array of `{ disc, edital }` objects
+
+**Caching:** Results are cached for performance. Invalidate with `invalidateDiscCache()`.
+
+## Getting a Specific Discipline
+
+```js
+// Get discipline by ID (logic.js:296-299)
+export function getDisc(id) {
+  if (!_discIndex) getAllDisciplinas();
+  return _discIndex.get(id) || null;
+}
+
+// Usage example
+const discEntry = getDisc('disc_abc');
+if (discEntry) {
+  console.log(discEntry.disc.nome); // "Direito Constitucional"
+  console.log(discEntry.edital.nome); // "TRF 2ª Região"
+}
+```
+
+## Progress Tracking
+
+### Topic Completion
+
+Mark topics as complete via Session Registration:
+
+```js
+// Auto-completion logic (registro-sessao.js:651-668)
+if (statusTopico === 'finalizado' && discId) {
+  const d = getDisc(discId);
+  if (d && assId) {
+    const ass = d.disc.assuntos.find(a => a.id === assId);
+    if (ass && !ass.concluido) {
+      ass.concluido = true;
+      ass.dataConclusao = todayStr();
+      ass.revisoesFetas = []; // Triggers spaced repetition
+    }
+  }
+}
+```
+
+### Lesson Completion
+
+```js
+// Mark lesson as studied (registro-sessao.js:654-658)
+if (aulaId) {
+  const achadoAula = d.disc.aulas?.find(a => a.id === aulaId);
+  if (achadoAula && !achadoAula.estudada) {
+    achadoAula.estudada = true;
+  }
+}
+```
+
+## Syllabus Progress Calculation
+
+```js
+// Calculate overall progress (logic.js:330-342)
+export function getSyllabusProgress() {
+  let totalAssuntos = 0;
+  let totalConcluidos = 0;
+
+  state.editais.forEach(ed => {
+    ed.disciplinas.forEach(d => {
+      totalAssuntos += d.assuntos.length;
+      totalConcluidos += d.assuntos.filter(a => a.concluido).length;
+    });
+  });
+
+  return { totalAssuntos, totalConcluidos };
+}
+```
+
+## Color and Icon Pickers
+
+### Color Palette
+
+```js
+// Available colors (views.js:24-28)
+export const COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+  '#14b8a6', '#e11d48', '#0ea5e9', '#a855f7', '#22c55e',
+  '#eab308', '#d946ef', '#64748b'
+];
+```
+
+### Icon Library
+
+```js
+// Available icons (views.js:31-35)
+export const DISC_ICONS = [
+  '📚', '📖', '📝', '📋', '📊', '📈', '🔬', '🧪', '🧮', '💻',
+  '🌍', '🏛️', '⚖️', '🧠', '💡', '📐', '🔢', '🗂️', '📜', '🎯',
+  '🩺', '🔧', '🎨', '🎵', '🏃', '🌱', '💰', '📡', '🔐', '📦'
+];
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Organize by Exam">
+    Create separate editais for each exam you're preparing for. Don't mix syllabi from different exams in one edital.
+  </Accordion>
+
+  <Accordion title="Use Official Topic Names">
+    Copy topic names exactly as they appear in the exam notice. This helps when using Banca Intelligence for relevance analysis.
+  </Accordion>
+
+  <Accordion title="Assign Distinct Colors">
+    Give each discipline a unique color. This makes the Calendar and Dashboard much easier to read visually.
+  </Accordion>
+
+  <Accordion title="Track Materials Separately">
+    Use "Assuntos" for official syllabus topics and "Aulas" for your study materials. This separation keeps your progress tracking accurate.
+  </Accordion>
+</AccordionGroup>

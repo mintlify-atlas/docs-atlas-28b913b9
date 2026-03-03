@@ -1,0 +1,597 @@
+---
+title: 'Logic API'
+description: 'Business logic for timers, revisions, analytics, and study planning'
+---
+
+The Logic module contains core business logic for Estudo Organizado, including timer management, revision scheduling, performance analytics, and automated study planning.
+
+## Timer Functions
+
+### isTimerActive
+
+Check if a timer is currently running.
+
+```javascript
+import { isTimerActive } from './logic.js';
+
+if (isTimerActive('crono_livre')) {
+  console.log('Free timer is running');
+}
+```
+
+<ParamField path="eventId" type="string" required>
+  Event ID or `'crono_livre'` for the free timer
+</ParamField>
+
+<ResponseField name="return" type="boolean">
+  `true` if timer is active, `false` otherwise
+</ResponseField>
+
+### getElapsedSeconds
+
+Calculate total elapsed time for an event in seconds.
+
+```javascript
+import { getElapsedSeconds } from './logic.js';
+
+const evento = state.eventos[0];
+const elapsed = getElapsedSeconds(evento);
+console.log(`Studied for ${elapsed} seconds`);
+```
+
+<ParamField path="ev" type="object" required>
+  Event object with `tempoAcumulado` and optional `_timerStart`
+</ParamField>
+
+<ResponseField name="return" type="number">
+  Total elapsed seconds (accumulated + current session if running)
+</ResponseField>
+
+### toggleTimer
+
+Start or pause a timer.
+
+```javascript
+import { toggleTimer } from './logic.js';
+
+toggleTimer('ev_abc123'); // Starts or pauses timer for event
+```
+
+<ParamField path="eventId" type="string" required>
+  Event ID or `'crono_livre'`
+</ParamField>
+
+When starting:
+- Sets `_timerStart` to current timestamp
+- Calls `reattachTimers()` to start interval
+- Dispatches `app:refreshEventCard` event
+
+When pausing:
+- Accumulates elapsed time into `tempoAcumulado`
+- Removes `_timerStart`
+- Clears interval
+
+<Note>
+  All timer state changes automatically trigger `scheduleSave()`.
+</Note>
+
+### toggleTimerMode
+
+Toggle between continuous and Pomodoro timer modes.
+
+```javascript
+import { toggleTimerMode } from './logic.js';
+
+toggleTimerMode(); // Switches mode
+```
+
+In Pomodoro mode:
+- Timer auto-pauses after focus period (default 25 min)
+- Plays alarm sound
+- Shows desktop notification if permitted
+- Dispatches toast with break reminder
+
+### reattachTimers
+
+Reattach interval updates for all active timers.
+
+```javascript
+import { reattachTimers } from './logic.js';
+
+reattachTimers(); // Called after state changes
+```
+
+This function:
+- Clears all existing intervals
+- Finds all events with `_timerStart`
+- Creates new intervals that update UI every second
+- Implements Pomodoro auto-pause logic
+
+### addTimerMinutes
+
+Add extra time to an event's target duration.
+
+```javascript
+import { addTimerMinutes } from './logic.js';
+
+addTimerMinutes('ev_abc123', 15); // Add 15 minutes
+```
+
+<ParamField path="eventId" type="string" required>
+  Event ID or `'crono_livre'`
+</ParamField>
+
+<ParamField path="minutes" type="number" required>
+  Minutes to add to the duration
+</ParamField>
+
+### discardTimer
+
+Discard a timer session (resets accumulated time to zero).
+
+```javascript
+import { discardTimer } from './logic.js';
+
+discardTimer('ev_abc123'); // Shows confirmation dialog
+```
+
+<ParamField path="eventId" type="string" required>
+  Event ID or `'crono_livre'`
+</ParamField>
+
+<Warning>
+  This action requires user confirmation via `app:showConfirm` event.
+</Warning>
+
+### marcarEstudei
+
+Mark an event as studied (complete the session).
+
+```javascript
+import { marcarEstudei } from './logic.js';
+
+marcarEstudei('ev_abc123'); // Opens session registration modal
+```
+
+<ParamField path="eventId" type="string" required>
+  Event ID to mark as studied
+</ParamField>
+
+This function:
+- Opens the session registration modal (if available)
+- Falls back to `_marcarEstudeiDirect()` if modal not loaded
+- Stops timer and accumulates time
+- Updates event status to `'estudei'`
+- Marks associated topic as completed if applicable
+
+### deleteEvento
+
+Delete an event permanently.
+
+```javascript
+import { deleteEvento } from './logic.js';
+
+deleteEvento('ev_abc123'); // Shows confirmation dialog
+```
+
+<ParamField path="eventId" type="string" required>
+  Event ID to delete
+</ParamField>
+
+### totalStudySeconds
+
+Calculate total study time in seconds.
+
+```javascript
+import { totalStudySeconds } from './logic.js';
+
+const last7Days = totalStudySeconds(7);
+const allTime = totalStudySeconds();
+```
+
+<ParamField path="days" type="number">
+  Optional number of days to look back (null for all time)
+</ParamField>
+
+<ResponseField name="return" type="number">
+  Total seconds studied across matching events
+</ResponseField>
+
+## Revision Functions
+
+### calcRevisionDates
+
+Calculate scheduled revision dates based on spaced repetition.
+
+```javascript
+import { calcRevisionDates } from './logic.js';
+
+const dates = calcRevisionDates('2026-03-01', [0, 1], 0);
+// Returns: ['2026-03-02', '2026-03-08', '2026-03-31', '2026-05-30']
+// Based on default frequency: [1, 7, 30, 90] days
+```
+
+<ParamField path="dataConclusao" type="string" required>
+  Completion date in 'YYYY-MM-DD' format
+</ParamField>
+
+<ParamField path="feitas" type="array" required>
+  Array of completed revision indices
+</ParamField>
+
+<ParamField path="adiamentos" type="number" default={0}>
+  Number of days to postpone the schedule
+</ParamField>
+
+<ResponseField name="return" type="array">
+  Array of date strings for remaining revisions
+</ResponseField>
+
+<Note>
+  Results are cached using a Map for performance. Call `invalidateRevCache()` when frequency settings change.
+</Note>
+
+### getPendingRevisoes
+
+Get all revisions due today or earlier.
+
+```javascript
+import { getPendingRevisoes } from './logic.js';
+
+const pending = getPendingRevisoes();
+pending.forEach(rev => {
+  console.log(rev.assunto.nome, 'due on', rev.data);
+});
+```
+
+<ResponseField name="return" type="array">
+  Array of revision objects with:
+  - `assunto`: Topic object
+  - `disc`: Discipline object
+  - `edital`: Exam notice object
+  - `data`: Due date string
+</ResponseField>
+
+<Tip>
+  Results are cached. Call `invalidatePendingRevCache()` after marking revisions complete.
+</Tip>
+
+### invalidateRevCache
+
+Clear the revision dates cache.
+
+```javascript
+import { invalidateRevCache } from './logic.js';
+
+state.config.frequenciaRevisao = [1, 3, 7, 15, 30];
+invalidateRevCache();
+```
+
+### invalidatePendingRevCache
+
+Clear the pending revisions cache.
+
+```javascript
+import { invalidatePendingRevCache } from './logic.js';
+
+assunto.revisoesFetas.push(1);
+invalidatePendingRevCache();
+```
+
+## Discipline Functions
+
+### getAllDisciplinas
+
+Get all disciplines from all exam notices with parent context.
+
+```javascript
+import { getAllDisciplinas } from './logic.js';
+
+const allDiscs = getAllDisciplinas();
+allDiscs.forEach(({ disc, edital }) => {
+  console.log(disc.nome, 'from', edital.titulo);
+});
+```
+
+<ResponseField name="return" type="array">
+  Array of objects with `disc` and `edital` properties
+</ResponseField>
+
+<Note>
+  Results are cached. Call `invalidateDiscCache()` when editais change.
+</Note>
+
+### getDisc
+
+Get a discipline by ID with parent context.
+
+```javascript
+import { getDisc } from './logic.js';
+
+const { disc, edital } = getDisc('disc_abc123');
+console.log(disc.nome, disc.icone);
+```
+
+<ParamField path="id" type="string" required>
+  Discipline ID
+</ParamField>
+
+<ResponseField name="return" type="object|null">
+  Object with `disc` and `edital` properties, or `null` if not found
+</ResponseField>
+
+### invalidateDiscCache
+
+Clear the disciplines cache.
+
+```javascript
+import { invalidateDiscCache } from './logic.js';
+
+state.editais.push(newEdital);
+invalidateDiscCache();
+```
+
+## Analytics Functions
+
+### getPerformanceStats
+
+Get question performance statistics.
+
+```javascript
+import { getPerformanceStats } from './logic.js';
+
+const { questionsTotal, questionsCorrect, questionsWrong } = getPerformanceStats();
+const accuracy = (questionsCorrect / questionsTotal) * 100;
+```
+
+<ResponseField name="return" type="object">
+  Object with:
+  - `questionsTotal`: number
+  - `questionsCorrect`: number
+  - `questionsWrong`: number
+</ResponseField>
+
+### getPagesReadStats
+
+Get total pages read across all study sessions.
+
+```javascript
+import { getPagesReadStats } from './logic.js';
+
+const totalPages = getPagesReadStats();
+```
+
+<ResponseField name="return" type="number">
+  Total pages read
+</ResponseField>
+
+### getSyllabusProgress
+
+Get completion progress for course lessons.
+
+```javascript
+import { getSyllabusProgress } from './logic.js';
+
+const { totalAssuntos, totalConcluidos } = getSyllabusProgress();
+const progress = (totalConcluidos / totalAssuntos) * 100;
+```
+
+<ResponseField name="return" type="object">
+  Object with:
+  - `totalAssuntos`: Total number of lessons
+  - `totalConcluidos`: Number of completed lessons
+</ResponseField>
+
+### getConsistencyStreak
+
+Calculate study consistency and generate heatmap.
+
+```javascript
+import { getConsistencyStreak } from './logic.js';
+
+const { currentStreak, maxStreak, heatmap } = getConsistencyStreak();
+console.log(`Current streak: ${currentStreak} days`);
+console.log(`Best streak: ${maxStreak} days`);
+```
+
+<ResponseField name="return" type="object">
+  Object with:
+  - `currentStreak`: number - Consecutive days studied up to today
+  - `maxStreak`: number - Longest historical streak
+  - `heatmap`: array - Boolean array of last 30 days (true = studied)
+</ResponseField>
+
+### getSubjectStats
+
+Get per-discipline study statistics.
+
+```javascript
+import { getSubjectStats } from './logic.js';
+
+const stats = getSubjectStats();
+stats.forEach(s => {
+  console.log(s.nome, '-', s.tempo, 'seconds', s.acertos, 'correct');
+});
+```
+
+<ResponseField name="return" type="array">
+  Array of objects with:
+  - `id`: string
+  - `nome`: string
+  - `tempo`: number - Total seconds studied
+  - `acertos`: number - Correct answers
+  - `erros`: number - Wrong answers
+</ResponseField>
+
+### getCurrentWeekStats
+
+Get current week study statistics.
+
+```javascript
+import { getCurrentWeekStats } from './logic.js';
+
+const {
+  startStr,
+  endStr,
+  totalSeconds,
+  totalQuestions,
+  dailySeconds
+} = getCurrentWeekStats();
+```
+
+<ResponseField name="return" type="object">
+  Object with:
+  - `startStr`: string - Week start date
+  - `endStr`: string - Week end date
+  - `totalSeconds`: number - Total study time this week
+  - `totalQuestions`: number - Total questions this week
+  - `dailySeconds`: array - Study time per day (7 elements)
+</ResponseField>
+
+### getPredictiveStats
+
+Get predictive analytics and weekly goal tracking.
+
+```javascript
+import { getPredictiveStats } from './logic.js';
+
+const {
+  status,
+  projectedPerc,
+  suggestion,
+  projectedSeconds,
+  targetSeconds
+} = getPredictiveStats(40); // 40 hours weekly goal
+```
+
+<ParamField path="metaHoras" type="number" required>
+  Weekly study goal in hours
+</ParamField>
+
+<ResponseField name="return" type="object">
+  Object with:
+  - `status`: string - 'verde', 'amarelo', or 'vermelho'
+  - `projectedPerc`: number - Projected percentage of goal
+  - `suggestion`: string - Actionable recommendation
+  - `projectedSeconds`: number - Projected total by week end
+  - `targetSeconds`: number - Target seconds from goal
+  - `burnRate`: number - Current seconds per day rate
+  - `daysRemaining`: number - Days left in week
+</ResponseField>
+
+## Planning Functions
+
+### calculateRelevanceWeights
+
+Calculate study time distribution based on importance and knowledge.
+
+```javascript
+import { calculateRelevanceWeights } from './logic.js';
+
+const draft = {
+  'disc_1': { importancia: 5, conhecimento: 1 },
+  'disc_2': { importancia: 3, conhecimento: 4 }
+};
+
+const weights = calculateRelevanceWeights(draft);
+// Returns:
+// {
+//   'disc_1': { importancia: 5, conhecimento: 1, peso: 25, percentual: 71.4 },
+//   'disc_2': { importancia: 3, conhecimento: 4, peso: 10, percentual: 28.6 }
+// }
+```
+
+<ParamField path="relevanciaDraft" type="object" required>
+  Object mapping discipline IDs to `{importancia, conhecimento}` ratings (1-5 scale)
+</ParamField>
+
+<ResponseField name="return" type="object">
+  Object mapping discipline IDs to calculated weights with `percentual` property
+</ResponseField>
+
+<Note>
+  Formula: `peso = importancia × (6 - conhecimento)`. Lower knowledge increases weight.
+</Note>
+
+### generatePlanejamento
+
+Generate automated study plan from wizard configuration.
+
+```javascript
+import { generatePlanejamento } from './logic.js';
+
+const draft = {
+  tipo: 'ciclo',
+  disciplinas: ['disc_1', 'disc_2'],
+  relevancia: { 'disc_1': { importancia: 5, conhecimento: 2 } },
+  horarios: { horasSemanais: 40, sessaoMin: 30, sessaoMax: 120 }
+};
+
+const plan = generatePlanejamento(draft);
+```
+
+<ParamField path="draft" type="object" required>
+  Planning configuration with `tipo`, `disciplinas`, `relevancia`, and `horarios`
+</ParamField>
+
+<ResponseField name="return" type="object">
+  Complete planning object with generated `sequencia` array
+</ResponseField>
+
+The function:
+- Calculates relevance weights
+- Distributes weekly hours proportionally
+- Breaks sessions into min/max durations
+- Creates sequenced study blocks
+- Saves to `state.planejamento`
+- Calls `syncCicloToEventos()` to generate events
+
+### deletePlanejamento
+
+Delete the current study plan.
+
+```javascript
+import { deletePlanejamento } from './logic.js';
+
+deletePlanejamento(); // Shows confirmation dialog
+```
+
+### iniciarEtapaPlanejamento
+
+Start a study session for a planning sequence item.
+
+```javascript
+import { iniciarEtapaPlanejamento } from './logic.js';
+
+iniciarEtapaPlanejamento('seq_abc123');
+```
+
+<ParamField path="seqId" type="string" required>
+  Sequence item ID from `state.planejamento.sequencia`
+</ParamField>
+
+This function:
+- Creates an event for the sequence item
+- Starts the timer automatically
+- Navigates to the timer view
+
+### syncCicloToEventos
+
+Generate future events from the planning sequence.
+
+```javascript
+import { syncCicloToEventos } from './logic.js';
+
+syncCicloToEventos(); // Regenerates next 14 days of events
+```
+
+This function:
+- Removes auto-generated future events
+- Keeps events with study time or status='estudei'
+- Generates events for next 14 days based on sequence
+- Respects `materiasPorDia` configuration
+- Honors weekly schedule if tipo='semanal'
+
+<Tip>
+  Call this after modifying planning configuration or sequence order.
+</Tip>

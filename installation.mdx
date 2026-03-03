@@ -1,0 +1,364 @@
+---
+title: Installation
+description: Learn how to install and set up Estudo Organizado on your device
+---
+
+## System Requirements
+
+Estudo Organizado is designed to work on any modern device with minimal requirements:
+
+### Browser Requirements
+
+- **Modern Web Browser**: Chrome 90+, Firefox 88+, Safari 14+, or Edge 90+
+- **JavaScript Enabled**: Required for application functionality
+- **LocalStorage & IndexedDB**: For data persistence (enabled by default)
+- **Service Worker Support**: For PWA features and offline access
+
+### Optional Requirements
+
+For local development server (if not using a pre-configured server):
+
+- **Python 3.x** OR **Node.js 14+**
+- **Windows**: Python is typically pre-installed; Node.js available at [nodejs.org](https://nodejs.org)
+
+<Note>
+  The application itself requires only a web browser. Python or Node.js are only needed to run a local HTTP server.
+</Note>
+
+## Installation Methods
+
+Choose the installation method that best fits your environment:
+
+<Tabs>
+  <Tab title="Windows (Recommended)">
+    ### Using the Windows Launcher
+
+    The easiest way to run Estudo Organizado on Windows:
+
+    <Steps>
+      <Step title="Download the Application">
+        Download or clone the Estudo Organizado repository to your computer.
+      </Step>
+      
+      <Step title="Locate the Launcher">
+        Navigate to the application folder and find `Abrir_Estudo_Organizado.bat`
+        
+        <img src="/images/windows-launcher.png" alt="Windows Launcher" />
+      </Step>
+      
+      <Step title="Run the Launcher">
+        Double-click `Abrir_Estudo_Organizado.bat`
+        
+        The launcher will:
+        - Start a local Python HTTP server on port 8000
+        - Automatically open the application in your default browser
+        - Display a command window (keep it open while using the app)
+      </Step>
+      
+      <Step title="Start Studying">
+        The application will open at `http://localhost:8000`
+        
+        You're ready to start planning your studies!
+      </Step>
+    </Steps>
+
+    <Warning>
+      **Important**: Do not close the black command window while using the application. It runs the local server. Close it only when you're done studying.
+    </Warning>
+
+    #### What the Launcher Does
+
+    The `Abrir_Estudo_Organizado.bat` file contains:
+
+    ```batch
+    @echo off
+    echo ===================================================
+    echo Iniciando Estudo Organizado via Servidor Local...
+    echo Por favor, NAO FECHE esta janela preta enquanto estuda!
+    echo Feche apenas quando terminar de usar o aplicativo.
+    echo ===================================================
+    cd "%~dp0src"
+    start http://localhost:8000
+    python -m http.server 8000
+    ```
+
+    It automatically:
+    1. Changes to the `src` directory
+    2. Opens your browser to `http://localhost:8000`
+    3. Starts Python's built-in HTTP server
+  </Tab>
+
+  <Tab title="Manual Setup (Python)">
+    ### Using Python HTTP Server
+
+    <Steps>
+      <Step title="Open Terminal">
+        Open your terminal or command prompt and navigate to the application's `src` folder:
+        
+        ```bash
+        cd path/to/estudo-organizado/src
+        ```
+      </Step>
+      
+      <Step title="Start the Server">
+        Run Python's built-in HTTP server:
+        
+        ```bash
+        python -m http.server 8000
+        ```
+        
+        Or with Python 2:
+        ```bash
+        python -m SimpleHTTPServer 8000
+        ```
+      </Step>
+      
+      <Step title="Access the Application">
+        Open your browser and navigate to:
+        
+        ```
+        http://localhost:8000
+        ```
+      </Step>
+    </Steps>
+
+    <Note>
+      The server will continue running until you press `Ctrl+C` in the terminal. Keep the terminal window open while using the app.
+    </Note>
+  </Tab>
+
+  <Tab title="Manual Setup (Node.js)">
+    ### Using Node.js HTTP Server
+
+    <Steps>
+      <Step title="Open Terminal">
+        Open your terminal or command prompt and navigate to the application's `src` folder:
+        
+        ```bash
+        cd path/to/estudo-organizado/src
+        ```
+      </Step>
+      
+      <Step title="Start the Server">
+        Run the Node.js HTTP server using `npx`:
+        
+        ```bash
+        npx http-server -p 8000
+        ```
+        
+        <Note>
+          `npx` comes bundled with Node.js 14+ and will automatically download `http-server` if needed.
+        </Note>
+      </Step>
+      
+      <Step title="Access the Application">
+        Open your browser and navigate to:
+        
+        ```
+        http://localhost:8000
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Installing as a Native App (PWA)
+
+Once you have the application running in your browser, you can install it as a Progressive Web App for a native app experience:
+
+### Desktop Installation
+
+<Steps>
+  <Step title="Open the Application">
+    Navigate to `http://localhost:8000` in your browser
+  </Step>
+  
+  <Step title="Look for Install Prompt">
+    Most browsers will show an install icon in the address bar:
+    
+    - **Chrome/Edge**: Look for a ⊕ or install icon in the address bar
+    - **Firefox**: Click the menu (⋮) → "Install Estudo Organizado"
+    - **Safari**: Not supported on desktop
+  </Step>
+  
+  <Step title="Install the App">
+    Click the install button and confirm the installation
+    
+    The app will:
+    - Install as a standalone application
+    - Appear in your Start Menu/Applications folder
+    - Run in its own window without browser UI
+    - Work offline after first load
+  </Step>
+</Steps>
+
+### Mobile Installation (Android)
+
+<Steps>
+  <Step title="Open in Chrome">
+    Open the application in Google Chrome on your Android device
+  </Step>
+  
+  <Step title="Add to Home Screen">
+    Tap the menu (⋮) → "Add to Home screen" or "Install app"
+  </Step>
+  
+  <Step title="Confirm Installation">
+    Tap "Add" or "Install" in the confirmation dialog
+    
+    The app will appear on your home screen like a native app
+  </Step>
+</Steps>
+
+### Mobile Installation (iOS)
+
+<Steps>
+  <Step title="Open in Safari">
+    Open the application in Safari on your iOS device
+  </Step>
+  
+  <Step title="Share Menu">
+    Tap the Share button (square with arrow)
+  </Step>
+  
+  <Step title="Add to Home Screen">
+    Scroll down and tap "Add to Home Screen"
+  </Step>
+  
+  <Step title="Confirm">
+    Tap "Add" to install the app
+  </Step>
+</Steps>
+
+<Note>
+  **PWA Benefits**: Once installed, the app works offline, loads instantly, and provides a native app experience without requiring app store downloads.
+</Note>
+
+## Service Worker Registration
+
+The application automatically registers a Service Worker for offline functionality. You can verify this in the browser console:
+
+```javascript
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('SW Registrado com escopo:', reg.scope))
+            .catch(err => console.error('Erro no registro do SW:', err));
+    });
+}
+```
+
+From `src/index.html:19-26`
+
+### Verifying Service Worker
+
+To check if the Service Worker is active:
+
+1. Open Developer Tools (F12)
+2. Go to **Application** tab (Chrome) or **Storage** tab (Firefox)
+3. Click **Service Workers** in the sidebar
+4. You should see `sw.js` registered and activated
+
+## PWA Manifest
+
+The application's PWA configuration is defined in `manifest.json`:
+
+```json
+{
+  "name": "Estudo Organizado",
+  "short_name": "Estudo",
+  "description": "Aplicativo de Metodologia de Estudo e Organização do Ciclo Contínuo",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#10b981",
+  "orientation": "portrait-primary"
+}
+```
+
+From `src/manifest.json:1-23`
+
+## Troubleshooting
+
+### Server Won't Start
+
+**Problem**: `python: command not found` or similar error
+
+**Solution**: 
+- Ensure Python or Node.js is installed
+- On Windows, add Python to your PATH during installation
+- Try using `python3` instead of `python`
+
+### Port Already in Use
+
+**Problem**: Port 8000 is already in use
+
+**Solution**: Use a different port:
+```bash
+# Python
+python -m http.server 8001
+
+# Node.js
+npx http-server -p 8001
+```
+
+Then access at `http://localhost:8001`
+
+### PWA Won't Install
+
+**Problem**: Install button doesn't appear
+
+**Solution**:
+- Ensure you're using HTTPS or localhost
+- Check that Service Worker is registered (see above)
+- Try using Chrome or Edge (best PWA support)
+- Clear browser cache and reload
+
+### App Not Working Offline
+
+**Problem**: App requires internet connection
+
+**Solution**:
+- Visit the app at least once while online
+- Check Service Worker is active in DevTools
+- Wait a few seconds for initial cache to populate
+- Reload the page to activate Service Worker
+
+<Warning>
+  If you continue experiencing issues, check the browser console (F12) for error messages. Most issues are related to Service Worker registration or cache configuration.
+</Warning>
+
+## Next Steps
+
+Now that you have Estudo Organizado installed:
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start Guide"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Learn how to create your first study session
+  </Card>
+  <Card
+    title="Study Organizer"
+    icon="clock"
+    href="/features/study-organizer"
+  >
+    Master the study session timer and tracking
+  </Card>
+  <Card
+    title="Exam Syllabi"
+    icon="list"
+    href="/features/editais"
+  >
+    Set up your exam syllabus structure
+  </Card>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/configuration"
+  >
+    Customize themes, sync, and backups
+  </Card>
+</CardGroup>

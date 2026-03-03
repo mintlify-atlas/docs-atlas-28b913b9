@@ -1,0 +1,618 @@
+---
+title: "Timer & Pomodoro"
+description: "Advanced study timer with Continuous and Pomodoro modes for focused study sessions"
+---
+
+## Overview
+
+The **Timer & Pomodoro** system provides a fullscreen, distraction-free interface for timing your study sessions. Switch between **Continuous Mode** (unlimited timer) and **Pomodoro Mode** (timed intervals with breaks) to match your preferred study technique.
+
+<Info>
+  The Pomodoro Technique uses 25-minute focus sessions followed by 5-minute breaks. Estudo Organizado implements this with automatic timer pauses and audio notifications.
+</Info>
+
+## Timer Modes
+
+### Continuous Mode (Default)
+
+Unlimited timer that counts up until you manually stop:
+
+- No automatic pauses
+- Study as long as you want
+- Ideal for deep work sessions
+- Default mode on app launch
+
+### Pomodoro Mode
+
+Structured intervals with automatic breaks:
+
+```js
+// Pomodoro configuration (logic.js:77-92)
+if (_pomodoroMode && ev._timerStart) {
+  const sessionSeconds = Math.floor((Date.now() - ev._timerStart) / 1000);
+  const focoTargetSecs = (state?.config?.pomodoroFoco || 25) * 60;
+  const pausaTargetMins = state?.config?.pomodoroPausa || 5;
+  
+  if (sessionSeconds >= focoTargetSecs) {
+    _pomodoroAlarm.play().catch(e => console.log('Audio error:', e));
+    toggleTimer(id); // Auto-pause
+    
+    showToast(`Pomodoro concluído! Descanse ${pausaTargetMins} minutos.`, 'success');
+    
+    if (Notification.permission === 'granted') {
+      new Notification('Pomodoro Concluído! 🍅', { 
+        body: `Descanse ${pausaTargetMins} minutos.`, 
+        icon: 'favicon.ico' 
+      });
+    }
+  }
+}
+```
+
+**Default intervals:**
+- **Focus**: 25 minutes
+- **Break**: 5 minutes
+
+<Note>
+  Intervals are customizable in Settings under `config.pomodoroFoco` and `config.pomodoroPausa`.
+</Note>
+
+## Toggling Modes
+
+```js
+// Mode toggle (logic.js:24-35)
+export function toggleTimerMode() {
+  _pomodoroMode = !_pomodoroMode;
+  
+  const btn = document.getElementById('crono-mode-btn');
+  const foco = state?.config?.pomodoroFoco || 25;
+  const pausa = state?.config?.pomodoroPausa || 5;
+  
+  if (btn) {
+    btn.innerHTML = _pomodoroMode 
+      ? `🍅 Pomodoro (${foco}/${pausa})` 
+      : '⏱ Modo Contínuo';
+    
+    btn.style.backgroundColor = _pomodoroMode 
+      ? 'rgba(139,92,246,0.15)' 
+      : 'rgba(255,255,255,0.06)';
+  }
+  
+  showToast(
+    _pomodoroMode ? 'Modo Pomodoro ativado.' : 'Modo Contínuo ativado.', 
+    'info'
+  );
+}
+```
+
+## Cronômetro Interface
+
+Fullscreen timer view with:
+
+### Header Section
+- "Você está estudando:" indicator
+- Discipline and topic name
+- Discipline selector (for free sessions)
+
+### Progress Bar
+
+```js
+// Progress calculation (components.js:47-48)
+const plannedSecs = (focusEvent.duracaoMinutos || focusEvent.duracao) 
+  ? (focusEvent.duracaoMinutos || focusEvent.duracao) * 60 
+  : (focusEvent.id === 'crono_livre' ? 0 : 5400);
+
+const progress = plannedSecs > 0 
+  ? Math.min((elapsed / plannedSecs) * 100, 100) 
+  : 0;
+```
+
+**Display:**
+- Start time on left
+- End time (target) on right
+- Green progress bar fills as you study
+- Hidden if no planned duration set
+
+### Main Timer Display
+
+```html
+<!-- Large HH:MM:SS display (components.js:104-106) -->
+<div id="crono-main-timer" class="crono-timer-display ${isActive ? 'active' : ''}">
+  ${formatTime(elapsed)}
+</div>
+```
+
+**Features:**
+- Monospace font for readability
+- Pulsing animation when active
+- Live updates every second
+- Large 72px+ font size
+
+### Control Buttons
+
+| Button | Icon | Action | Visibility |
+|--------|------|--------|------------|
+| **Play/Pause** | ▶ / ⏸ | Start or pause timer | Always visible |
+| **Complete** | ✅ | Finish session and save | Always visible |
+| **Discard** | 🗑 | Delete session | Only if elapsed > 0 |
+
+```html
+<!-- Control buttons (components.js:109-129) -->
+<div style="display:flex;gap:24px;margin-top:40px;align-items:center;">
+  <button onclick="toggleTimer('${focusEvent.id}')" 
+          class="crono-btn-main ${isActive ? 'pause' : 'play'}">
+    ${isActive ? '⏸' : '▶'}
+  </button>
+  
+  <button onclick="marcarEstudei('${focusEvent.id}')" 
+          class="crono-btn-circle success">
+    <i class="fa fa-check"></i>
+  </button>
+
+  <button id="btn-discard-timer" 
+          onclick="discardTimer('${focusEvent.id}')" 
+          class="crono-btn-circle danger"
+          style="display:${elapsed > 0 ? 'flex' : 'none'};">
+    <i class="fa fa-trash"></i>
+  </button>
+</div>
+```
+
+### Add Time Controls
+
+Quick buttons to extend session duration:
+
+```html
+<!-- Add time buttons (components.js:147-154) -->
+<div style="display:flex;gap:12px;justify-content:center;">
+  <button onclick="addTimerMinutes('${focusEvent.id}',1)">+ 1min</button>
+  <button onclick="addTimerMinutes('${focusEvent.id}',5)">+ 5min</button>
+  <button onclick="addTimerMinutes('${focusEvent.id}',15)">+ 15min</button>
+</div>
+```
+
+```js
+// Add time function (logic.js:101-112)
+export function addTimerMinutes(eventId, minutes) {
+  const ev = eventId === 'crono_livre' 
+    ? state.cronoLivre 
+    : state.eventos.find(e => e.id === eventId);
+  
+  if (!ev) return;
+  
+  if (eventId === 'crono_livre') {
+    ev.duracaoMinutos = (ev.duracaoMinutos || 0) + minutes;
+  } else {
+    ev.duracao = (ev.duracao || 0) + minutes;
+  }
+  
+  scheduleSave();
+  showToast(`+${minutes} minuto(s) adicionado(s) à meta`, 'info');
+  renderCurrentView();
+}
+```
+
+### Mode Toggle Button
+
+Bottom button to switch between modes:
+
+```html
+<!-- Mode toggle (components.js:160-171) -->
+<button id="crono-mode-btn" 
+        onclick="toggleTimerMode()" 
+        style="
+          padding:8px 20px;
+          border-radius:20px;
+          ${_pomodoroMode
+            ? 'background:var(--accent-light);color:var(--accent-dark);'
+            : 'background:var(--bg);color:var(--text-secondary);'}
+        ">
+  ${_pomodoroMode 
+    ? `🍅 Pomodoro (${pomodoroFoco}/${pomodoroPausa})` 
+    : '⏱ Modo Contínuo'}
+</button>
+```
+
+## Timer Engine
+
+### Starting a Timer
+
+```js
+// Toggle timer on/off (logic.js:114-130)
+export function toggleTimer(eventId) {
+  const ev = eventId === 'crono_livre' 
+    ? state.cronoLivre 
+    : state.eventos.find(e => e.id === eventId);
+  
+  if (!ev) return;
+  
+  if (ev._timerStart) {
+    // PAUSE
+    ev.tempoAcumulado = getElapsedSeconds(ev);
+    delete ev._timerStart;
+    
+    if (timerIntervals[eventId]) {
+      clearInterval(timerIntervals[eventId]);
+      delete timerIntervals[eventId];
+    }
+  } else {
+    // START
+    ev._timerStart = Date.now();
+    reattachTimers(); // Start interval
+  }
+  
+  scheduleSave();
+  refreshEventCard(eventId);
+  updateBadges();
+}
+```
+
+### Elapsed Time Calculation
+
+```js
+// Calculate elapsed seconds (logic.js:18-22)
+export function getElapsedSeconds(ev) {
+  const base = ev.tempoAcumulado || 0;
+  if (!ev._timerStart) return base;
+  return base + Math.floor((Date.now() - ev._timerStart) / 1000);
+}
+```
+
+**Logic:**
+1. `tempoAcumulado`: Seconds accumulated before current session
+2. `_timerStart`: Timestamp when current session started (if running)
+3. Elapsed = base + (now - start)
+
+### Timer Intervals
+
+Live updates via JavaScript intervals:
+
+```js
+// Attach intervals to active timers (logic.js:60-99)
+export function reattachTimers() {
+  // Clear existing intervals
+  Object.keys(timerIntervals).forEach(id => {
+    clearInterval(timerIntervals[id]);
+    delete timerIntervals[id];
+  });
+
+  // Find all active timers
+  const allTimers = [];
+  if (state.cronoLivre && state.cronoLivre._timerStart) {
+    allTimers.push({ id: 'crono_livre', ev: state.cronoLivre });
+  }
+  state.eventos.forEach(e => {
+    if (e._timerStart) allTimers.push({ id: e.id, ev: e });
+  });
+
+  // Create interval for each timer
+  allTimers.forEach(({ id, ev }) => {
+    timerIntervals[id] = setInterval(() => {
+      const elapsed = getElapsedSeconds(ev);
+
+      // POMODORO CHECK
+      if (_pomodoroMode && ev._timerStart) {
+        const sessionSeconds = Math.floor((Date.now() - ev._timerStart) / 1000);
+        const focoTargetSecs = (state?.config?.pomodoroFoco || 25) * 60;
+        
+        if (sessionSeconds >= focoTargetSecs) {
+          _pomodoroAlarm.play();
+          toggleTimer(id); // Auto-pause
+          // ... show notifications
+          return;
+        }
+      }
+
+      // Update all timer displays with this ID
+      document.querySelectorAll(`[data-timer="${id}"]`).forEach(el => {
+        el.textContent = formatTime(elapsed);
+      });
+    }, 1000);
+  });
+}
+```
+
+<Warning>
+  Timer intervals persist across page navigation. They're only cleared when explicitly stopped or when the cronômetro view is unmounted.
+</Warning>
+
+## Discarding Sessions
+
+```js
+// Discard timer (logic.js:133-151)
+export function discardTimer(eventId) {
+  const ev = eventId === 'crono_livre' 
+    ? state.cronoLivre 
+    : state.eventos.find(e => e.id === eventId);
+  
+  if (!ev) return;
+  
+  showConfirm(
+    'Descartar esta sessão? O tempo de estudo será zerado.',
+    () => {
+      if (timerIntervals[eventId]) {
+        clearInterval(timerIntervals[eventId]);
+        delete timerIntervals[eventId];
+      }
+      
+      ev.tempoAcumulado = 0;
+      delete ev._timerStart;
+      
+      scheduleSave();
+      renderCurrentView();
+    },
+    { danger: true, label: 'Descartar', title: 'Descartar Sessão' }
+  );
+}
+```
+
+<Note>
+  Discarding a timer **does not** delete the event itself (if it's a scheduled event). It only resets the accumulated time to zero.
+</Note>
+
+## Completing Sessions
+
+Marking as studied triggers Session Registration:
+
+```js
+// Complete session (logic.js:153-161)
+export function marcarEstudei(eventId) {
+  // Open the Registro da Sessão de Estudo modal
+  if (typeof window.openRegistroSessao === 'function') {
+    window.openRegistroSessao(eventId);
+    return;
+  }
+  
+  // Fallback: immediate completion without registration
+  _marcarEstudeiDirect(eventId);
+}
+```
+
+The session registration modal captures detailed study metrics including time spent, questions answered, and pages read.
+
+## Free Session (Crono Livre)
+
+When no scheduled events exist, the timer shows a free session:
+
+```js
+// Free session initialization (components.js:20-32)
+const isLivreActiveOrPaused = state.cronoLivre && 
+  (state.cronoLivre._timerStart || state.cronoLivre.tempoAcumulado > 0);
+
+if (allTimerEvents.length === 0 || isLivreActiveOrPaused) {
+  const cronoLivreMock = {
+    id: 'crono_livre',
+    titulo: 'Sessão Livre',
+    discId: state.cronoLivre?.discId || null,
+    assId: state.cronoLivre?.assId || null,
+    duracaoMinutos: state.cronoLivre?.duracaoMinutos || 0,
+    tempoAcumulado: state.cronoLivre?.tempoAcumulado || 0,
+    _timerStart: state.cronoLivre?._timerStart || null
+  };
+  
+  if (isLivreActiveOrPaused) allTimerEvents.unshift(cronoLivreMock);
+  else allTimerEvents.push(cronoLivreMock);
+}
+```
+
+**Features:**
+- Discipline selector dropdown
+- Goal time input (in minutes)
+- Converts to real event when completed
+
+### Free Session Configuration
+
+```js
+// Set discipline for free session (logic.js:45-51)
+window.setCronoLivreDisc = function(discId) {
+  if (!state.cronoLivre) state.cronoLivre = { _timerStart: null, tempoAcumulado: 0 };
+  state.cronoLivre.discId = discId;
+  state.cronoLivre.assId = null; // reset topic
+  scheduleSave();
+  renderCurrentView();
+};
+
+// Set goal time (logic.js:38-43)
+window.setCronoLivreGoal = function(minutes) {
+  if (!state.cronoLivre) state.cronoLivre = { _timerStart: null, tempoAcumulado: 0 };
+  state.cronoLivre.duracaoMinutos = parseInt(minutes, 10) || 0;
+  scheduleSave();
+  renderCurrentView();
+};
+```
+
+## Multiple Timers
+
+The app supports multiple concurrent timers:
+
+```js
+// Other timers section (components.js:174-190)
+${otherEvents.length > 0 ? `
+  <div style="padding:0 32px 24px;">
+    <div>Outros cronômetros:</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      ${otherEvents.map(ev => {
+        const evActive = !!ev._timerStart;
+        const evDisc = getDisc(ev.discId);
+        return `
+          <button onclick="navigate('cronometro');toggleTimer('${ev.id}')" 
+                  class="btn ${evActive ? 'btn-primary' : 'btn-ghost'}">
+            ${evDisc ? evDisc.disc.nome : 'Evento'} ${evActive ? '⏱️' : '⏸️'}
+          </button>
+        `;
+      }).join('')}
+    </div>
+  </div>
+` : ''}
+```
+
+**Behavior:**
+- Only one timer shown in fullscreen (focused event)
+- Other active timers listed at bottom
+- Click to switch focus and toggle timer
+
+## Live Updates
+
+Cronômetro view uses a dedicated interval for smooth updates:
+
+```js
+// Cronometro live update (components.js:195-211)
+if (window._cronoInterval) clearInterval(window._cronoInterval);
+
+window._cronoInterval = setInterval(() => {
+  const ev = focusEvent.id === 'crono_livre' 
+    ? state.cronoLivre 
+    : state.eventos.find(e => e.id === focusEvent.id);
+  
+  if (!ev) { clearInterval(window._cronoInterval); return; }
+  
+  const elapsed = getElapsedSeconds(ev);
+  
+  const timerEl = document.getElementById('crono-main-timer');
+  if (timerEl) timerEl.textContent = formatTime(elapsed);
+  
+  const progressBar = document.getElementById('crono-progress-bar');
+  if (progressBar) {
+    const pct = plannedSecs > 0 ? Math.min((elapsed / plannedSecs) * 100, 100) : 0;
+    progressBar.style.width = pct + '%';
+  }
+  
+  const btnDiscard = document.getElementById('btn-discard-timer');
+  if (btnDiscard) {
+    btnDiscard.style.display = elapsed > 0 ? 'flex' : 'none';
+  }
+}, 1000);
+```
+
+<Warning>
+  The interval is cleared when switching away from the Cronômetro view to prevent memory leaks.
+</Warning>
+
+## Audio Notifications
+
+Pomodoro mode plays an alarm when time is up:
+
+```js
+// Pomodoro alarm (logic.js:10)
+export let _pomodoroAlarm = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+
+// Play alarm (logic.js:84)
+_pomodoroAlarm.play().catch(e => console.log('Audio error:', e));
+```
+
+## Browser Notifications
+
+Desktop notifications (if permission granted):
+
+```js
+// Request permission (app initialization)
+if ('Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission();
+}
+
+// Show notification (logic.js:87-89)
+if (Notification.permission === 'granted') {
+  new Notification('Pomodoro Concluído! 🍅', { 
+    body: `Descanse ${pausaTargetMins} minutos.`, 
+    icon: 'favicon.ico' 
+  });
+}
+```
+
+## Using the Timer
+
+<Steps>
+  <Step title="Start from Study Organizer">
+    In the MED view, click the play button (▶) on any event. This automatically navigates to the Cronômetro view with the timer running.
+  </Step>
+
+  <Step title="Choose Timer Mode">
+    Click the mode toggle button at the bottom to switch between Continuous and Pomodoro modes.
+    
+    <Note>
+      Mode preference is not persisted - it resets to Continuous on page reload.
+    </Note>
+  </Step>
+
+  <Step title="Monitor Progress">
+    Watch the large timer display count up. The progress bar shows completion percentage if you set a target duration.
+  </Step>
+
+  <Step title="Extend If Needed">
+    Click "+1min", "+5min", or "+15min" to add more time to your session without stopping the timer.
+  </Step>
+
+  <Step title="Complete or Discard">
+    - Click ✅ to finish and open Session Registration
+    - Click 🗑 to discard the session and reset time to zero
+  </Step>
+</Steps>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Try Both Modes">
+    Experiment with Continuous and Pomodoro modes to find what works best for you. Some subjects benefit from longer uninterrupted sessions, while others work well with frequent breaks.
+  </Accordion>
+
+  <Accordion title="Set Realistic Goals">
+    Use the "+5min", "+15min" buttons instead of setting overly long initial durations. It's easier to extend than to feel discouraged by impossible targets.
+  </Accordion>
+
+  <Accordion title="Minimize Distractions">
+    The fullscreen timer is designed to keep you focused. Avoid switching tabs or checking your phone during active sessions.
+  </Accordion>
+
+  <Accordion title="Take Breaks Seriously">
+    If using Pomodoro mode, actually rest during the 5-minute breaks. Stand up, stretch, hydrate - don't start studying another topic.
+  </Accordion>
+
+  <Accordion title="Complete Sessions Promptly">
+    Mark sessions as complete immediately after finishing. This ensures accurate data in your Dashboard and prevents forgetting what you studied.
+  </Accordion>
+</AccordionGroup>
+
+## Customization
+
+### Pomodoro Intervals
+
+Edit in Settings or directly in state:
+
+```js
+// Custom Pomodoro intervals
+state.config.pomodoroFoco = 50; // 50-minute focus sessions
+state.config.pomodoroPausa = 10; // 10-minute breaks
+
+// Save and restart timers
+scheduleSave();
+reattachTimers();
+```
+
+### Custom Alarm Sound
+
+Replace the alarm URL:
+
+```js
+// In logic.js, change the audio source
+export let _pomodoroAlarm = new Audio('/path/to/your/alarm.mp3');
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Timer Not Starting">
+    Ensure the event exists and has not already been marked as "estudei". Check browser console for JavaScript errors.
+  </Accordion>
+
+  <Accordion title="Alarm Not Playing">
+    Check browser audio permissions. Some browsers block autoplay audio. Click anywhere on the page first, then the alarm should work.
+  </Accordion>
+
+  <Accordion title="Notifications Not Showing">
+    Grant notification permissions in your browser settings. Visit Settings and re-enable notifications for this site.
+  </Accordion>
+
+  <Accordion title="Timer Continues After Pause">
+    This is a bug. Call `reattachTimers()` in the console to reset all intervals. Report the issue if it persists.
+  </Accordion>
+</AccordionGroup>

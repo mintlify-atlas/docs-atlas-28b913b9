@@ -1,0 +1,515 @@
+---
+title: 'View Rendering System'
+description: 'How views.js renders all major application screens and UI sections'
+---
+
+## Overview
+
+The `views.js` module is responsible for **rendering HTML for all major views** in Estudo Organizado. It contains view-specific rendering functions that generate markup based on application state.
+
+**Key Views:**
+- Home (Dashboard)
+- MED (Today's Study Events)
+- Calendar (Month/Week)
+- Dashboard (Analytics)
+- Revisões (Spaced Repetition)
+- Hábitos (Habit Tracking)
+- Editais (Syllabus Management)
+- Config (Settings)
+
+---
+
+## Home View (Dashboard Redesign)
+
+### `renderHome(el)`
+
+The main dashboard showing study metrics, goals, and predictive analytics.
+
+**Location:** `views.js:40-299`
+
+```javascript
+export function renderHome(el) {
+  const perf = getPerformanceStats();
+  const perfPerc = perf.questionsTotal > 0 
+    ? Math.round((perf.questionsCorrect / perf.questionsTotal) * 100) 
+    : 0;
+
+  const prog = getSyllabusProgress();
+  const progPerc = prog.totalAssuntos > 0 
+    ? Math.round((prog.totalConcluidos / prog.totalAssuntos) * 100) 
+    : 0;
+
+  const streak = getConsistencyStreak();
+  const subjStats = getSubjectStats();
+  const weekStats = getCurrentWeekStats();
+
+  // ... more calculations
+  
+  el.innerHTML = `
+    <!-- Top stats cards -->
+    <div class="dash-grid-top">
+      <div class="card p-16">...</div>
+      <div class="card p-16">...</div>
+    </div>
+    
+    <!-- Consistency heatmap -->
+    <div class="card p-16 dash-streak-panel">...</div>
+    
+    <!-- Subject table + goals + charts -->
+    <div class="dash-grid-bottom">...</div>
+  `;
+}
+```
+
+<Accordion title="Home View Sections">
+  **Top Stats (Line 1)**
+  - Total study time
+  - Performance (% correct)
+  - Syllabus progress
+  - Pages read
+  
+  **Consistency Heatmap (Line 2)**
+  - Last 30 days visualization
+  - Current streak and max streak
+  
+  **Bottom Grid (Line 3)**
+  - **Left:** Subject performance table (time, correct, wrong, %)
+  - **Right:** 
+    - Weekly prediction (Green/Yellow/Red)
+    - Exam date countdown
+    - Weekly goals (hours and questions)
+    - Weekly study chart (7-day bar chart)
+</Accordion>
+
+<Tabs>
+  <Tab title="Predictive Stats">
+    The home view includes a **weekly predictor** that calculates if the user will hit their goals based on current burn rate:
+    
+    ```javascript
+    const pred = getPredictiveStats(metaHoras);
+    // Returns: { status: 'verde'|'amarelo'|'vermelho', projectedPerc, suggestion }
+    ```
+    
+    **Status Logic:**
+    - **Green:** On track or already met goal
+    - **Yellow:** Need +X min/day to reach goal (80-100% projected)
+    - **Red:** High deficit, unlikely to meet goal (less than 80% projected)
+  </Tab>
+  
+  <Tab title="Heatmap">
+    Shows study consistency with checkmarks (✓) for days studied and X for missed days:
+    
+    ```javascript
+    const heatmapHtml = streak.heatmap.map(x =>
+      `<div class="streak-dot ${x ? 'streak-dot-ok' : 'streak-dot-miss'}">
+        <i class="fa ${x ? 'fa-check' : 'fa-times'}"></i>
+      </div>`
+    ).join('');
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## MED View (Today's Events)
+
+### `renderMED(el)`
+
+Displays today's study events, split into "Agendado" (scheduled) and "Estudado" (completed).
+
+**Location:** `views.js:330-383`
+
+```javascript
+export function renderMED(el) {
+  const today = todayStr();
+  const todayEvents = state.eventos.filter(e => e.data === today);
+  const agendados = todayEvents.filter(e => e.status !== 'estudei');
+  const estudados = todayEvents.filter(e => e.status === 'estudei');
+  const totalSeconds = estudados.reduce((s, e) => s + (e.tempoAcumulado || 0), 0);
+
+  el.innerHTML = `
+    <div id="med-stats-row" style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+      <div class="card" style="flex:1;min-width:200px;padding:20px;text-align:center;">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Tempo Total Hoje</div>
+        <div style="font-size:32px;font-weight:800;font-family:'DM Mono',monospace;color:var(--text-primary);" id="total-time">${formatTime(totalSeconds)}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${estudados.length} evento(s) concluído(s)</div>
+      </div>
+      <!-- More stat cards -->
+    </div>
+
+    ${agendados.length === 0 && estudados.length === 0 ? `
+      <div class="empty-state" style="padding:60px 20px;">
+        <div class="icon">📅</div>
+        <h4>Nenhum evento para hoje</h4>
+        <p style="margin-bottom:16px;">Adicione eventos de estudo para começar a registrar seu tempo.</p>
+        <button class="btn btn-primary" onclick="openAddEventModal()"><i class="fa fa-plus"></i> Adicionar Evento</button>
+      </div>
+    ` : `
+      <div id="med-section-agendado">
+        ${agendados.length > 0 ? `
+          <div class="section-header"><h2>📌 Agendado para Hoje</h2></div>
+          ${agendados.map(e => renderEventCard(e)).join('')}
+        ` : ''}
+      </div>
+      <div id="med-section-estudado">
+        ${estudados.length > 0 ? `
+          <div class="section-header" style="margin-top:24px;"><h2>✅ Estudado Hoje</h2></div>
+          ${estudados.map(e => renderEventCard(e)).join('')}
+        ` : ''}
+      </div>
+    `}
+  `;
+}
+```
+
+<Info>
+**Surgical DOM Updates**
+
+Instead of re-rendering the entire view when events change, MED uses targeted updates:
+- `refreshEventCard(eventId)`: Updates a single event card
+- `refreshMEDSections()`: Updates only the stats and event lists
+- `removeDOMCard(eventId)`: Removes a deleted event without full re-render
+
+See `views.js:386-456` for implementation.
+</Info>
+
+---
+
+## Calendar View
+
+### `renderCalendar(el)`
+
+Displays events in a month or week grid.
+
+**Location:** `views.js:459-478`
+
+```javascript
+export function renderCalendar(el) {
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-body">
+        <div class="cal-header">
+          <div class="cal-nav">
+            <button onclick="calNavigate(-1)"><i class="fa fa-chevron-left"></i></button>
+            <button onclick="calNavigate(1)"><i class="fa fa-chevron-right"></i></button>
+          </div>
+          <div class="cal-title">${calDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}</div>
+          <button class="btn btn-ghost btn-sm" onclick="calDate=new Date();renderCurrentView()">Hoje</button>
+          <div style="margin-left:auto;" class="cal-view-tabs">
+            <div class="cal-view-tab ${calViewMode === 'mes' ? 'active' : ''}" onclick="setCalViewMode('mes')">Mês</div>
+            <div class="cal-view-tab ${calViewMode === 'semana' ? 'active' : ''}" onclick="setCalViewMode('semana')">Semana</div>
+          </div>
+        </div>
+        ${calViewMode === 'mes' ? renderCalendarMonth() : renderCalendarWeek()}
+      </div>
+    </div>
+  `;
+}
+```
+
+<Tabs>
+  <Tab title="Month View">
+    **`renderCalendarMonth()`** (views.js:490-542)
+    
+    - Generates 7x5 or 7x6 grid of calendar cells
+    - Fills in previous/next month days for alignment
+    - Displays up to 3 events per cell, with "+N more" indicator
+    - Clicking a cell opens event creation modal for that date
+  </Tab>
+  
+  <Tab title="Week View">
+    **`renderCalendarWeek()`** (views.js:544-590)
+    
+    - 7-column grid for current week (Mon-Sun or Sun-Sat based on config)
+    - Shows all events for each day (no limit)
+    - Includes a "+" button to add events per day
+  </Tab>
+</Tabs>
+
+---
+
+## Dashboard View (Analytics)
+
+### `renderDashboard(el)`
+
+Deep analytics with charts and period filtering.
+
+**Location:** `views.js:656-744`
+
+```javascript
+export function renderDashboard(el) {
+  const periodDays = dashPeriod; // 7, 30, 90, or null (all time)
+  const periodLabel = { 7: '7 dias', 30: '30 dias', 90: '3 meses', null: 'Total' }[periodDays];
+
+  const cutoffStr = periodDays ? cutoffDateStr(periodDays) : null;
+  const filteredEvts = cutoffStr
+    ? state.eventos.filter(e => e.status === 'estudei' && e.data && e.data >= cutoffStr)
+    : state.eventos.filter(e => e.status === 'estudei');
+
+  const totalSecs = filteredEvts.reduce((s, e) => s + (e.tempoAcumulado || 0), 0);
+  const questTot = cutoffStr
+    ? (state.habitos.questoes || []).filter(r => r.data >= cutoffStr).reduce((s, q) => s + (q.quantidade || 1), 0)
+    : (state.habitos.questoes || []).reduce((s, q) => s + (q.quantidade || 1), 0);
+
+  el.innerHTML = `
+    <!-- Period selector tabs -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div style="font-size:13px;color:var(--text-secondary);">Exibindo dados: <strong style="color:var(--text-primary);">${periodLabel}</strong></div>
+      <div class="cal-view-tabs">
+        ${[7, 30, 90, null].map(p => `
+          <div class="cal-view-tab ${dashPeriod === p ? 'active' : ''}" onclick="setDashPeriod(${p})">
+            ${{ 7: '7d', 30: '30d', 90: '3m', null: 'Total' }[p]}
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="stats-grid" style="margin-bottom:20px;">
+      <div class="stat-card green">...</div>
+      <div class="stat-card blue">...</div>
+      <div class="stat-card orange">...</div>
+      <div class="stat-card red">...</div>
+    </div>
+
+    <!-- Charts -->
+    <div class="grid-2" style="margin-bottom:16px;">
+      <div class="card">
+        <div class="card-header"><h3>📊 Horas por Dia</h3></div>
+        <div class="card-body">
+          <div class="chart-wrap"><canvas id="chart-daily"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>📚 Tempo por Disciplina</h3></div>
+        <div class="card-body">
+          <div class="chart-wrap"><canvas id="chart-disc"></canvas></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  renderDailyChart(periodDays);
+  renderDiscChart(periodDays);
+}
+```
+
+<CardGroup cols={2}>
+  <Card title="Daily Chart" icon="chart-bar">
+    Bar chart of study minutes per day using Chart.js
+  </Card>
+  <Card title="Discipline Chart" icon="chart-pie">
+    Doughnut chart of time distribution across subjects
+  </Card>
+</CardGroup>
+
+---
+
+## Revisões View
+
+### `renderRevisoes(el)`
+
+Displays pending and upcoming spaced repetition reviews.
+
+**Location:** `views.js:879-967`
+
+```javascript
+export function renderRevisoes(el) {
+  const pending = getPendingRevisoes();
+  const upcoming = getUpcomingRevisoes(30);
+  const today = todayStr();
+
+  el.innerHTML = `
+    <!-- Stats cards -->
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+      <div class="card" style="flex:1;min-width:140px;padding:16px;text-align:center;">
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Pendentes Hoje</div>
+        <div style="font-size:28px;font-weight:800;color:var(--red);">${pending.filter(r => r.data <= today).length}</div>
+      </div>
+      <!-- More stats -->
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab-btn active" onclick="switchRevTab('pendentes', this)">🔄 Pendentes (${pending.length})</div>
+      <div class="tab-btn" onclick="switchRevTab('proximas', this)">📅 Próximas 30 dias (${upcoming.length})</div>
+    </div>
+
+    <!-- Pending reviews -->
+    <div id="rev-tab-pendentes" class="tab-content active">
+      ${pending.length === 0 ? `
+        <div class="empty-state">...</div>
+      ` : pending.map(r => {
+        const isOverdue = r.data < today;
+        const revNum = (r.assunto.revisoesFetas || []).length + 1;
+        return `
+          <div class="rev-item">
+            <div class="rev-days ${isOverdue ? 'overdue' : 'today'}">
+              <div class="num">${revNum}ª</div>
+              <div class="label">Rev</div>
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;font-weight:600;">${r.assunto.nome}</div>
+              <div style="font-size:12px;color:var(--text-secondary);">${r.disc.nome} • ${r.edital.nome}</div>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-primary btn-sm" onclick="marcarRevisao('${r.assunto.id}')">✅ Feita</button>
+              <button class="btn btn-ghost btn-sm" onclick="adiarRevisao('${r.assunto.id}')">⏩ +1 dia</button>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <!-- Upcoming reviews -->
+    <div id="rev-tab-proximas" class="tab-content">
+      ${upcoming.length === 0 ? `...` : upcoming.map(r => `...`).join('')}
+    </div>
+  `;
+}
+```
+
+<Info>
+**Review Actions:**
+- **Marcar Feita:** Adds today to `revisoesFetas` array, advances to next interval
+- **Adiar +1 dia:** Increments `adiamentos` counter, postpones all future revisions by 1 day
+</Info>
+
+---
+
+## Hábitos View
+
+### `renderHabitos(el)`
+
+Tracks study habits like questions solved, simulations, readings, etc.
+
+**Location:** `views.js:1015-1048`
+
+```javascript
+export function renderHabitos(el) {
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
+  const cutoffStr = cutoff.toISOString().split('T')[0];
+
+  el.innerHTML = `
+    <div class="habit-grid">
+      ${HABIT_TYPES.map(h => {
+        const all = state.habitos[h.key] || [];
+        const recent = all.filter(r => r.data >= cutoffStr);
+        const total = h.key === 'questoes' 
+          ? all.reduce((s, q) => s + (q.quantidade || 1), 0) 
+          : all.length;
+        return `
+          <div class="habit-card" onclick="openHabitModal('${h.key}')">
+            <div class="hc-icon">${h.icon}</div>
+            <div class="hc-label">${h.label}</div>
+            <div class="hc-count" style="color:${h.color};">${total}</div>
+            <div class="hc-sub">${recent.length} nos últimos 7 dias</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>📏 Histórico de Hábitos</h3>
+        <span style="font-size:12px;color:var(--text-muted);" id="habit-hist-count"></span>
+      </div>
+      <div class="card-body" style="padding:0;" id="habit-hist-list"></div>
+      <div id="habit-hist-footer" style="padding:12px 16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--border);"></div>
+    </div>
+  `;
+  renderHabitHistPage();
+}
+```
+
+<Accordion title="Available Habit Types">
+  | Key | Icon | Label |
+  |-----|------|-------|
+  | `questoes` | ❓ | Questões |
+  | `revisao` | 🔄 | Revisão |
+  | `discursiva` | ✍️ | Discursiva |
+  | `simulado` | 📝 | Simulado |
+  | `leitura` | 📖 | Leitura |
+  | `informativo` | 📰 | Informativo |
+  | `sumula` | ⚖️ | Súmula |
+  | `videoaula` | 🎥 | Videoaula |
+</Accordion>
+
+---
+
+## Event Detail Modal
+
+### `openEventDetail(eventId)`
+
+Shows a detailed modal for a specific event.
+
+**Location:** `views.js:601-645`
+
+```javascript
+export function openEventDetail(eventId) {
+  const ev = state.eventos.find(e => e.id === eventId);
+  if (!ev) return;
+  const status = getEventStatus(ev);
+  const elapsed = getElapsedSeconds(ev);
+  const tempoStr = elapsed > 0 ? formatTime(elapsed) : '00:00:00';
+  const discInfo = ev.discId ? getDisc(ev.discId) : null;
+  const disc = discInfo ? discInfo.disc : null;
+  const ass = disc && ev.assId ? disc.assuntos.find(a => a.id === ev.assId) : null;
+
+  let html = `
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-size:18px;font-weight:700;color:var(--text-primary);padding-bottom:12px;border-bottom:1px solid var(--border);">
+        ${esc(ev.titulo)}
+      </div>
+      <div class="grid-2">
+        <div class="card" style="padding:12px;">
+          <div style="font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:4px;">STATUS</div>
+          <div style="font-size:14px;color:var(--text-primary);font-weight:500;" class="event-tag ${status}">
+            ${status === 'estudei' ? 'concluido' : status === 'atrasado' ? 'Atrasado' : 'Agendado'}
+          </div>
+        </div>
+        <div class="card" style="padding:12px;">
+          <div style="font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:4px;">TEMPO ACUMULADO</div>
+          <div style="font-size:16px;color:var(--text-primary);font-weight:700;font-family:'DM Mono',monospace;">
+            ${tempoStr}
+          </div>
+        </div>
+      </div>
+      <div><strong>Data Inicial:</strong> ${formatDate(ev.data)}</div>
+      ${disc ? `<div><strong>Disciplina:</strong> ${esc(disc.nome)}</div>` : ''}
+      ${ass ? `<div><strong>Assunto:</strong> ${esc(ass.nome)}</div>` : ''}
+      ${ev.notas ? `<div style="margin-top:8px;"><strong>Anotações:</strong><div class="card" style="padding:12px;margin-top:8px;font-size:13px;line-height:1.5;">${esc(ev.notas)}</div></div>` : ''}
+    </div>
+    <div class="modal-footer" style="padding:16px 0 0;border-top:1px solid var(--border);margin-top:20px;display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn btn-ghost" onclick="closeModal('modal-event-detail')">Fechar</button>
+      <button class="btn btn-danger" onclick="closeModal('modal-event-detail'); window.deleteEvento('${ev.id}')">Excluir Evento</button>
+    </div>
+  `;
+  body.innerHTML = html;
+  openModal('modal-event-detail');
+}
+```
+
+---
+
+## Summary
+
+<CardGroup cols={3}>
+  <Card title="Home" icon="home">
+    Dashboard with metrics, streaks, goals, and predictions
+  </Card>
+  <Card title="MED" icon="calendar-day">
+    Today's study events with targeted DOM updates
+  </Card>
+  <Card title="Calendar" icon="calendar">
+    Month/week view with event creation shortcuts
+  </Card>
+  <Card title="Dashboard" icon="chart-line">
+    Analytics with period filtering and Chart.js graphs
+  </Card>
+  <Card title="Revisões" icon="redo">
+    Spaced repetition review management
+  </Card>
+  <Card title="Hábitos" icon="fire">
+    Habit tracking with paginated history
+  </Card>
+</CardGroup>

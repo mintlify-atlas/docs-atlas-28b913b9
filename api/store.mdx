@@ -1,0 +1,318 @@
+---
+title: 'Store API'
+description: 'State management and IndexedDB persistence layer'
+---
+
+The Store module provides centralized state management for Estudo Organizado, with automatic persistence to IndexedDB and optional cloud synchronization.
+
+## State Object
+
+The global application state containing all user data.
+
+<ParamField path="state" type="object">
+  Central state object persisted to IndexedDB
+</ParamField>
+
+<ResponseField name="schemaVersion" type="number">
+  Current schema version for migrations (default: 7)
+</ResponseField>
+
+<ResponseField name="ciclo" type="object">
+  Study cycle configuration
+  - `ativo`: boolean - Whether cycle mode is active
+  - `ciclosCompletos`: number - Completed cycles count
+  - `disciplinas`: array - Disciplines in the cycle
+</ResponseField>
+
+<ResponseField name="planejamento" type="object">
+  Study planning configuration
+  - `ativo`: boolean - Whether planning is active
+  - `tipo`: string - Planning type ('ciclo' or 'semanal')
+  - `disciplinas`: array - Selected discipline IDs
+  - `relevancia`: object - Relevance weights by discipline
+  - `horarios`: object - Schedule configuration
+  - `sequencia`: array - Generated study sequence
+</ResponseField>
+
+<ResponseField name="editais" type="array">
+  Exam notices with disciplines and topics
+</ResponseField>
+
+<ResponseField name="eventos" type="array">
+  Study events and sessions
+</ResponseField>
+
+<ResponseField name="arquivo" type="array">
+  Archived events (older than 90 days)
+</ResponseField>
+
+<ResponseField name="habitos" type="object">
+  Study habits tracking by type (questoes, revisao, discursiva, etc.)
+</ResponseField>
+
+<ResponseField name="revisoes" type="array">
+  Scheduled revisions
+</ResponseField>
+
+<ResponseField name="config" type="object">
+  User preferences and configuration
+  - `visualizacao`: string - View mode ('mes', 'semana', 'dia')
+  - `primeirodiaSemana`: number - First day of week (0=Sunday, 1=Monday)
+  - `mostrarNumeroSemana`: boolean - Show week numbers
+  - `agruparEventos`: boolean - Group events in calendar
+  - `frequenciaRevisao`: array - Revision intervals in days [1, 7, 30, 90]
+  - `materiasPorDia`: number - Subjects per day in planning
+</ResponseField>
+
+<ResponseField name="cronoLivre" type="object">
+  Free timer session state
+  - `_timerStart`: number|null - Timer start timestamp
+  - `tempoAcumulado`: number - Accumulated seconds
+</ResponseField>
+
+<ResponseField name="bancaRelevance" type="object">
+  Exam board intelligence data
+  - `hotTopics`: array - Trending topics
+  - `userMappings`: object - User topic mappings
+  - `lessonMappings`: object - Lesson to topic mappings
+</ResponseField>
+
+## Core Functions
+
+### setState
+
+Update the global state with normalized data.
+
+```javascript
+import { setState, state } from './store.js';
+
+setState({
+  eventos: [...state.eventos, newEvent],
+  config: { ...state.config, visualizacao: 'semana' }
+});
+```
+
+<ParamField path="newState" type="object" required>
+  Partial or complete state object to merge
+</ParamField>
+
+<Note>
+  `setState` automatically normalizes the input, ensuring all required properties exist with default values.
+</Note>
+
+### initDB
+
+Initialize IndexedDB connection and load persisted state.
+
+```javascript
+import { initDB } from './store.js';
+
+await initDB();
+// State is now loaded and ready to use
+```
+
+Returns a Promise that resolves when the database is initialized and state is loaded.
+
+<ResponseField name="return" type="Promise<void>">
+  Resolves when initialization is complete
+</ResponseField>
+
+<Warning>
+  If IndexedDB fails, the function falls back to `loadLegacyState()` which attempts to load from localStorage.
+</Warning>
+
+### scheduleSave
+
+Schedule a debounced save to IndexedDB (2 second delay).
+
+```javascript
+import { scheduleSave, state } from './store.js';
+
+state.eventos.push(newEvent);
+scheduleSave(); // Saves after 2 seconds
+```
+
+This function:
+- Clears any pending save timeout
+- Dispatches `app:invalidateCaches` event
+- Dispatches `app:updateBadges` event immediately
+- Schedules `saveStateToDB()` to run after 2 seconds
+
+<Note>
+  Multiple calls within 2 seconds will debounce, only saving once.
+</Note>
+
+### saveStateToDB
+
+Immediately save state to IndexedDB (bypasses debounce).
+
+```javascript
+import { saveStateToDB } from './store.js';
+
+await saveStateToDB();
+// State is now persisted
+```
+
+<ResponseField name="return" type="Promise<void>">
+  Resolves when save is complete
+</ResponseField>
+
+After saving:
+- Dispatches `stateSaved` event
+- Triggers cloud sync if enabled (`state.config.cfSyncSyncEnabled`)
+
+<Tip>
+  Use `saveStateToDB()` before critical operations like closing the app or before navigation.
+</Tip>
+
+### loadStateFromDB
+
+Load state from IndexedDB.
+
+```javascript
+import { loadStateFromDB } from './store.js';
+
+await loadStateFromDB();
+```
+
+<ResponseField name="return" type="Promise<void>">
+  Resolves when state is loaded
+</ResponseField>
+
+This function:
+- Prevents timer persistence bugs by clearing `_timerStart` on new sessions
+- Falls back to `loadLegacyState()` if no data found
+- Runs migrations via `runMigrations()`
+
+### loadLegacyState
+
+Migrate state from old localStorage format to IndexedDB.
+
+```javascript
+import { loadLegacyState } from './store.js';
+
+loadLegacyState();
+```
+
+Used as a fallback when IndexedDB is unavailable or when migrating from older versions.
+
+### clearData
+
+Reset all application data to defaults.
+
+```javascript
+import { clearData } from './store.js';
+
+clearData();
+// All data is now reset to initial state
+```
+
+<Warning>
+  This action is irreversible. The calling code should confirm with the user before invoking.
+</Warning>
+
+After clearing:
+- Shows success toast notification
+- Dispatches `app:renderCurrentView` to refresh UI
+
+### runMigrations
+
+Execute schema migrations based on `state.schemaVersion`.
+
+```javascript
+import { runMigrations } from './store.js';
+
+runMigrations();
+```
+
+Migrations include:
+- **v1 → v2**: Add IDs to editais, migrate grupos to disciplinas
+- **v2 → v3**: Add arquivo array, normalize frequenciaRevisao
+- **v3 → v4**: Add ciclo support
+- **v4 → v5**: Add planejamento support
+- **v6 → v7**: Separate Assuntos (topics) from Aulas (lessons)
+
+<Note>
+  Migrations run automatically on state load. If changes are made, `scheduleSave()` is called.
+</Note>
+
+## Sync Queue
+
+The `SyncQueue` manages sequential async operations to prevent race conditions.
+
+### SyncQueue.add
+
+Add a task to the synchronization queue.
+
+```javascript
+import { SyncQueue } from './store.js';
+
+await SyncQueue.add(async () => {
+  await pushToCloudflare();
+});
+```
+
+<ParamField path="taskFn" type="function" required>
+  Async function to execute
+</ParamField>
+
+<ResponseField name="return" type="Promise<void>">
+  Resolves when the task completes
+</ResponseField>
+
+## Constants
+
+<ParamField path="DB_NAME" type="string">
+  IndexedDB database name: `'EstudoOrganizadoDB'`
+</ParamField>
+
+<ParamField path="DB_VERSION" type="number">
+  IndexedDB schema version: `1`
+</ParamField>
+
+<ParamField path="STORE_NAME" type="string">
+  IndexedDB object store name: `'app_state'`
+</ParamField>
+
+<ParamField path="DEFAULT_SCHEMA_VERSION" type="number">
+  Current application schema version: `7`
+</ParamField>
+
+## Events
+
+The Store module dispatches these custom events:
+
+- **`app:invalidateCaches`**: Triggered when state changes (scheduleSave)
+- **`app:updateBadges`**: Triggered to update UI badges
+- **`stateSaved`**: Triggered after successful IndexedDB save
+
+## Example Usage
+
+```javascript
+import { initDB, state, setState, scheduleSave } from './store.js';
+
+// Initialize on app startup
+await initDB();
+
+// Read state
+console.log(state.eventos);
+
+// Update state
+state.eventos.push({
+  id: 'ev_' + Date.now(),
+  titulo: 'Study Session',
+  data: '2026-03-03',
+  status: 'agendado'
+});
+scheduleSave();
+
+// Or use setState for complete replacement
+setState({
+  ...state,
+  config: {
+    ...state.config,
+    visualizacao: 'dia'
+  }
+});
+scheduleSave();
+```

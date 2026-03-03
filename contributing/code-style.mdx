@@ -1,0 +1,436 @@
+---
+title: Code Style Guide
+description: JavaScript coding conventions and style patterns used in Estudo Organizado, based on actual codebase patterns.
+---
+
+## JavaScript Conventions
+
+Estudo Organizado uses **Vanilla JavaScript (ES6+)** without frameworks. This guide documents the coding patterns observed throughout the codebase.
+
+## Module Structure
+
+### Export Pattern
+
+Use **named exports** for all functions and constants:
+
+```javascript
+// ✅ Good - Named exports
+export const DB_NAME = 'EstudoOrganizadoDB';
+export const DB_VERSION = 1;
+
+export function initDB() {
+  // implementation
+}
+
+export function setState(newState) {
+  // implementation
+}
+```
+
+```javascript
+// ❌ Avoid - Default exports
+export default function initDB() {
+  // ...
+}
+```
+
+### Import Pattern
+
+Import only what you need using destructuring:
+
+```javascript
+// ✅ Good - Specific imports
+import { pushToCloudflare } from './cloud-sync.js';
+import { uid } from './utils.js';
+```
+
+<Note>
+Always include the `.js` extension in import statements for compatibility with native ES modules.
+</Note>
+
+## File Organization
+
+### Header Comments
+
+Start each module with a descriptive header:
+
+```javascript
+// =============================================
+// SCHEMA & STATE MANAGEMENT (INDEXEDDB)
+// =============================================
+```
+
+Use this pattern for major functional sections within files as well.
+
+### Logical Grouping
+
+Group related functions together and separate them with comments:
+
+```javascript
+// Initialize DB and load state
+export function initDB() {
+  // ...
+}
+
+export function loadStateFromDB() {
+  // ...
+}
+
+// Fallback to load from LocalStorage
+export function loadLegacyState() {
+  // ...
+}
+```
+
+## Naming Conventions
+
+### Constants
+
+Use **SCREAMING_SNAKE_CASE** for module-level constants:
+
+```javascript
+export const DB_NAME = 'EstudoOrganizadoDB';
+export const DB_VERSION = 1;
+export const STORE_NAME = 'app_state';
+export const DEFAULT_SCHEMA_VERSION = 7;
+```
+
+### Variables
+
+Use **camelCase** for variables and function names:
+
+```javascript
+export let db;
+export let saveTimeout = null;
+
+const isSameSession = sessionStorage.getItem('estudo_session_active');
+const loadedState = request.result;
+```
+
+### Functions
+
+Use **descriptive verb-based names** in camelCase:
+
+```javascript
+export function setState(newState) { }
+export function scheduleSave() { }
+export function saveStateToDB() { }
+export function runMigrations() { }
+export function clearData() { }
+```
+
+### Object Properties
+
+Use **camelCase** for object properties:
+
+```javascript
+const state = {
+  schemaVersion: DEFAULT_SCHEMA_VERSION,
+  ciclo: { ativo: false, ciclosCompletos: 0, disciplinas: [] },
+  planejamento: { ativo: false, tipo: null },
+  editais: [],
+  eventos: [],
+  habitos: { questoes: [], revisao: [] }
+};
+```
+
+<Warning>
+Portuguese property names are used throughout the project to match the domain language. Maintain this convention for consistency.
+</Warning>
+
+## Code Patterns
+
+### State Management
+
+#### Normalizing State
+
+Always provide default values when setting state:
+
+```javascript
+export function setState(newState) {
+  const normalized = {
+    schemaVersion: newState.schemaVersion || DEFAULT_SCHEMA_VERSION,
+    ciclo: newState.ciclo || { ativo: false, ciclosCompletos: 0, disciplinas: [] },
+    editais: newState.editais || [],
+    eventos: newState.eventos || [],
+    config: Object.assign({ 
+      visualizacao: 'mes', 
+      primeirodiaSemana: 1 
+    }, newState.config || {})
+  };
+
+  Object.keys(state).forEach(k => delete state[k]);
+  Object.assign(state, normalized);
+}
+```
+
+**Key points:**
+- Use `||` operator for simple defaults
+- Use `Object.assign()` for merging with default objects
+- Replace state properties without changing reference
+
+### Promises
+
+Return Promises for asynchronous operations:
+
+```javascript
+export function initDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onerror = (event) => {
+      console.error('IndexedDB Error:', event.target.error);
+      loadLegacyState();
+      resolve(); // Resolve even on error with fallback
+    };
+
+    request.onsuccess = (event) => {
+      db = event.target.result;
+      loadStateFromDB().then(() => resolve());
+    };
+  });
+}
+```
+
+### Event Handling
+
+Use **custom events** for cross-module communication:
+
+```javascript
+// Dispatching events
+document.dispatchEvent(new Event('app:invalidateCaches'));
+document.dispatchEvent(new Event('app:updateBadges'));
+document.dispatchEvent(new Event('stateSaved'));
+
+// With data
+document.dispatchEvent(new CustomEvent('app:showToast', { 
+  detail: { msg: 'Dados apagados com sucesso.', type: 'info' } 
+}));
+```
+
+### Error Handling
+
+Always handle errors gracefully with fallbacks:
+
+```javascript
+request.onerror = () => {
+  loadLegacyState(); // Fallback mechanism
+  resolve();
+};
+
+try {
+  const saved = localStorage.getItem('estudo_state');
+  if (saved) {
+    setState(JSON.parse(saved));
+  }
+} catch (e) {
+  console.error('Error loading legacy state:', e);
+}
+```
+
+## Comments
+
+### When to Comment
+
+**DO comment:**
+- Complex business logic
+- Bug fixes with context
+- Migration steps
+- Non-obvious workarounds
+
+```javascript
+// BUG 3: Prevenir persistência inflada de timer ao fechar a aba
+const isSameSession = sessionStorage.getItem('estudo_session_active');
+if (!isSameSession) {
+  if (loadedState.cronoLivre && loadedState.cronoLivre._timerStart) {
+    loadedState.cronoLivre._timerStart = null;
+  }
+}
+```
+
+```javascript
+// Wave 39: Separation between Assuntos (Edital Topics) and Aulas (Course Materials)
+if (state.schemaVersion < 7) {
+  // Migration logic
+}
+```
+
+**DON'T comment:**
+- Obvious code
+- What the code does (code should be self-documenting)
+
+```javascript
+// ❌ Bad - Obvious
+// Loop through editais
+state.editais.forEach(ed => { });
+
+// ✅ Good - Self-documenting
+state.editais.forEach(edital => {
+  edital.disciplinas.forEach(disciplina => {
+    // Process each subject
+  });
+});
+```
+
+### Migration Comments
+
+Document migrations with context:
+
+```javascript
+if (state.schemaVersion < 2) {
+  // Add IDs where missing
+  state.editais.forEach(ed => {
+    if (!ed.id) ed.id = 'ed_' + uid();
+    if (!ed.cor) ed.cor = '#10b981';
+    
+    // Migration: flatten grupos into disciplinas
+    if (ed.grupos && !ed.disciplinas) {
+      ed.disciplinas = [];
+      ed.grupos.forEach(gr => {
+        gr.disciplinas.forEach(d => ed.disciplinas.push(d));
+      });
+      delete ed.grupos;
+    }
+  });
+
+  state.schemaVersion = 2;
+  changed = true;
+}
+```
+
+## Async Patterns
+
+### Queue Pattern
+
+For sequential async operations:
+
+```javascript
+export const SyncQueue = {
+  isProcessing: false,
+  tasks: [],
+  
+  add(taskFn) {
+    return new Promise((resolve, reject) => {
+      this.tasks.push(async () => {
+        try {
+          await taskFn();
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      });
+      this.process();
+    });
+  },
+  
+  async process() {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+    while (this.tasks.length > 0) {
+      const fn = this.tasks.shift();
+      try {
+        await fn();
+      } catch (err) {
+        console.error('SyncQueue Error:', err);
+      }
+    }
+    this.isProcessing = false;
+  }
+};
+```
+
+### Debouncing
+
+Use debouncing for frequent operations:
+
+```javascript
+export function scheduleSave() {
+  if (saveTimeout) clearTimeout(saveTimeout);
+  
+  // Update UI instantly
+  document.dispatchEvent(new Event('app:updateBadges'));
+  
+  // Save after debounce period
+  saveTimeout = setTimeout(() => {
+    saveStateToDB();
+  }, 2000); // 2 second debounce
+}
+```
+
+## Data Initialization
+
+### Default Values
+
+Provide comprehensive defaults:
+
+```javascript
+export let state = {
+  schemaVersion: DEFAULT_SCHEMA_VERSION,
+  ciclo: { ativo: false, ciclosCompletos: 0, disciplinas: [] },
+  eventos: [],
+  habitos: { 
+    questoes: [], 
+    revisao: [], 
+    discursiva: [], 
+    simulado: [] 
+  },
+  config: {
+    visualizacao: 'mes',
+    primeirodiaSemana: 1,
+    frequenciaRevisao: [1, 7, 30, 90]
+  }
+};
+```
+
+### Backward Compatibility
+
+Ensure new properties work with old data:
+
+```javascript
+// Normalize habitos keys
+if (state.habitos) {
+  if (state.habitos.sumulas && !state.habitos.sumula) {
+    state.habitos.sumula = state.habitos.sumulas;
+    delete state.habitos.sumulas;
+  }
+  if (!state.habitos.videoaula) state.habitos.videoaula = [];
+}
+```
+
+## Regex Patterns
+
+Document regex purposes:
+
+```javascript
+// Match lesson-like topic names
+const classRegex = /(^aula\s*\d+)|(^modulo\s*\d+)/i;
+
+if (classRegex.test(ass.nome.trim())) {
+  // Handle as course lesson
+}
+```
+
+<Accordion title="Complete Style Checklist">
+- ✅ Use named exports
+- ✅ Include `.js` in imports
+- ✅ SCREAMING_SNAKE_CASE for constants
+- ✅ camelCase for variables and functions
+- ✅ Descriptive function names with verbs
+- ✅ Provide default values in state
+- ✅ Return Promises for async operations
+- ✅ Handle errors with fallbacks
+- ✅ Comment complex logic and bugs
+- ✅ Use custom events for cross-module communication
+- ✅ Document migrations with context
+- ✅ Debounce frequent operations
+- ✅ Maintain Portuguese domain terminology
+</Accordion>
+
+## Best Practices Summary
+
+1. **Keep it simple**: Vanilla JavaScript, no unnecessary abstractions
+2. **Performance first**: Debounce saves, cache when possible
+3. **Fail gracefully**: Always provide fallbacks
+4. **Document intent**: Comment the "why", not the "what"
+5. **Maintain compatibility**: Support data migrations
+6. **Test thoroughly**: See [Testing Guide](/contributing/testing)

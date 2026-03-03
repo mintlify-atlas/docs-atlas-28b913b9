@@ -1,0 +1,151 @@
+---
+title: 'Developer Environment Setup'
+description: 'Set up your local development environment for Estudo Organizado'
+---
+
+## Prerequisites
+
+Before you begin, ensure you have one of the following installed on your system:
+
+- **Python 3.x** (for Python's built-in HTTP server), or
+- **Node.js** (for npx http-server)
+
+<Note>
+Estudo Organizado is built with **vanilla JavaScript** (no frameworks) and requires only a local web server to run. No build process or package installation is needed.
+</Note>
+
+## Browser Requirements
+
+The application works best on modern browsers that support:
+
+- **Service Workers** (for PWA offline functionality)
+- **IndexedDB** (for local data storage)
+- **ES6+ JavaScript** features
+
+### Recommended Browsers
+
+- Chrome/Edge 90+
+- Firefox 88+
+- Safari 14+
+
+## Getting Started
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the Estudo Organizado repository to your local machine:
+
+    ```bash
+    git clone <repository-url>
+    cd estudo-organizado
+    ```
+  </Step>
+
+  <Step title="Navigate to Source Directory">
+    The application files are located in the `src/` directory:
+
+    ```bash
+    cd src
+    ```
+  </Step>
+
+  <Step title="Start a Local Web Server">
+    Choose one of the following methods to start a local server:
+
+    <CodeGroup>
+      ```bash Windows (Recommended)
+      # Double-click the batch file in the root directory
+      Abrir_Estudo_Organizado.bat
+      ```
+
+      ```bash Python
+      # From the src/ directory
+      python -m http.server 8000
+      ```
+
+      ```bash Node.js
+      # From the src/ directory
+      npx http-server -p 8000
+      ```
+    </CodeGroup>
+
+    <Note>
+    The Windows batch file (`Abrir_Estudo_Organizado.bat`) automatically starts the server and opens your default browser.
+    </Note>
+  </Step>
+
+  <Step title="Access the Application">
+    Open your browser and navigate to:
+
+    ```
+    http://localhost:8000
+    ```
+
+    You should see the Estudo Organizado home page with the sidebar navigation.
+  </Step>
+</Steps>
+
+## PWA Installation (Optional)
+
+Once the application is running, you can install it as a Progressive Web App:
+
+1. Look for the **install icon** in your browser's address bar
+2. Click to install the application natively on your device
+3. The app will work offline thanks to the Service Worker (`sw.js`)
+
+<Note>
+The Service Worker uses a **Cache-First** strategy for instant loading, even without an internet connection.
+</Note>
+
+## Verifying Your Setup
+
+After starting the server, verify everything is working:
+
+<Steps>
+  <Step title="Check Console">
+    Open browser DevTools (F12) and check the Console tab for:
+
+    ```
+    SW Registrado com escopo: /sw.js
+    ```
+
+    This confirms the Service Worker is registered successfully.
+  </Step>
+
+  <Step title="Test IndexedDB">
+    In DevTools, go to **Application > Storage > IndexedDB**. You should see the database being created when you interact with the app.
+  </Step>
+
+  <Step title="Verify PWA Manifest">
+    In DevTools, go to **Application > Manifest** to verify the app manifest loads correctly.
+  </Step>
+</Steps>
+
+## Common Issues
+
+### Service Worker Not Registering
+
+Service Workers require HTTPS or localhost. If you're using a different host:
+
+- Use `localhost` instead of `127.0.0.1`
+- Or configure HTTPS for your local server
+
+### Port Already in Use
+
+If port 8000 is already in use, choose a different port:
+
+```bash
+python -m http.server 8080
+# or
+npx http-server -p 8080
+```
+
+### CORS Issues
+
+If you encounter CORS errors when accessing external resources, ensure your local server is properly configured to serve from the `src/` directory.
+
+## Next Steps
+
+Now that your environment is set up, learn about:
+
+- [Project Structure](/developers/project-structure) - Understand the codebase organization
+- [Development Workflow](/developers/development-workflow) - Learn how to make changes and test them

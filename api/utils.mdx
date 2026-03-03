@@ -1,0 +1,425 @@
+---
+title: 'Utilities API'
+description: 'Pure utility functions for dates, formatting, and constants'
+---
+
+The Utils module provides pure, stateless utility functions used throughout Estudo Organizado.
+
+## ID Generation
+
+### uid
+
+Generate a unique identifier.
+
+```javascript
+import { uid } from './utils.js';
+
+const eventId = 'ev_' + uid();
+const discId = 'disc_' + uid();
+// Example: 'ev_l7k2m3n4p5q6r7s'
+```
+
+<ResponseField name="return" type="string">
+  Unique string combining timestamp and random characters
+</ResponseField>
+
+<Note>
+  The ID format is: `timestamp_base36 + random_base36`. While not guaranteed to be globally unique, collision probability is extremely low for typical use cases.
+</Note>
+
+## String Utilities
+
+### esc
+
+Escape HTML entities for safe rendering.
+
+```javascript
+import { esc } from './utils.js';
+
+const userInput = '<script>alert("xss")</script>';
+const safe = esc(userInput);
+// Returns: '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'
+
+el.innerHTML = `<div>${esc(evento.titulo)}</div>`;
+```
+
+<ParamField path="str" type="string|number">
+  String to escape (or any value that can be converted to string)
+</ParamField>
+
+<ResponseField name="return" type="string">
+  HTML-safe string with escaped entities
+</ResponseField>
+
+Escapes these characters:
+- `&` → `&amp;`
+- `<` → `&lt;`
+- `>` → `&gt;`
+- `"` → `&quot;`
+- `'` → `&#39;`
+
+<Warning>
+  Always use `esc()` when inserting user-generated content into `innerHTML` to prevent XSS attacks.
+</Warning>
+
+## Date Utilities
+
+### getLocalDateStr
+
+Convert a Date object to local date string in ISO format.
+
+```javascript
+import { getLocalDateStr } from './utils.js';
+
+const today = getLocalDateStr();
+// Returns: '2026-03-03'
+
+const tomorrow = new Date();
+tomorrow.setDate(tomorrow.getDate() + 1);
+const tomorrowStr = getLocalDateStr(tomorrow);
+// Returns: '2026-03-04'
+```
+
+<ParamField path="dateObj" type="Date" default="new Date()">
+  Date object to convert (defaults to current date/time)
+</ParamField>
+
+<ResponseField name="return" type="string">
+  Date string in 'YYYY-MM-DD' format, adjusted for local timezone
+</ResponseField>
+
+<Note>
+  This function accounts for timezone offset, ensuring dates are consistent with the user's local time rather than UTC.
+</Note>
+
+### todayStr
+
+Get today's date string (cached for performance).
+
+```javascript
+import { todayStr } from './utils.js';
+
+const today = todayStr();
+// Returns: '2026-03-03'
+
+if (evento.data === todayStr()) {
+  console.log('Event is today!');
+}
+```
+
+<ResponseField name="return" type="string">
+  Today's date in 'YYYY-MM-DD' format
+</ResponseField>
+
+<Tip>
+  The result is cached in `_todayCache`. Call `invalidateTodayCache()` if the app runs across midnight (rare in single-session usage).
+</Tip>
+
+### invalidateTodayCache
+
+Clear the today date cache.
+
+```javascript
+import { invalidateTodayCache } from './utils.js';
+
+// Typically called on app resume or after long idle:
+invalidateTodayCache();
+```
+
+### formatDate
+
+Format a date string for display in Brazilian Portuguese.
+
+```javascript
+import { formatDate } from './utils.js';
+
+const formatted = formatDate('2026-03-03');
+// Returns: '03/03/2026'
+
+const display = formatDate(evento.data);
+```
+
+<ParamField path="str" type="string" required>
+  Date string in 'YYYY-MM-DD' format
+</ParamField>
+
+<ResponseField name="return" type="string">
+  Formatted date in 'DD/MM/YYYY' format
+</ResponseField>
+
+### cutoffDateStr
+
+Calculate a date N days in the past.
+
+```javascript
+import { cutoffDateStr } from './utils.js';
+
+const sevenDaysAgo = cutoffDateStr(7);
+const thirtyDaysAgo = cutoffDateStr(30);
+
+// Filter recent events:
+const recentEvents = state.eventos.filter(e => 
+  e.data >= cutoffDateStr(7)
+);
+```
+
+<ParamField path="days" type="number" required>
+  Number of days to go back from today
+</ParamField>
+
+<ResponseField name="return" type="string">
+  Date string in 'YYYY-MM-DD' format
+</ResponseField>
+
+## Time Utilities
+
+### formatTime
+
+Format seconds as HH:MM:SS or MM:SS.
+
+```javascript
+import { formatTime } from './utils.js';
+
+formatTime(45);      // Returns: '00:45'
+formatTime(3665);    // Returns: '01:01:05'
+formatTime(0);       // Returns: '00:00'
+```
+
+<ParamField path="seconds" type="number" required>
+  Total seconds to format
+</ParamField>
+
+<ResponseField name="return" type="string">
+  Formatted time string (MM:SS if less than 1 hour, HH:MM:SS otherwise)
+</ResponseField>
+
+### pad
+
+Pad a number with leading zero.
+
+```javascript
+import { pad } from './utils.js';
+
+pad(5);   // Returns: '05'
+pad(12);  // Returns: '12'
+pad(0);   // Returns: '00'
+```
+
+<ParamField path="n" type="number" required>
+  Number to pad
+</ParamField>
+
+<ResponseField name="return" type="string">
+  Two-character string with leading zero if needed
+</ResponseField>
+
+## Event Utilities
+
+### getEventStatus
+
+Determine the status of an event based on its date and status field.
+
+```javascript
+import { getEventStatus } from './utils.js';
+
+const evento = {
+  data: '2026-03-01',
+  status: 'agendado'
+};
+
+const status = getEventStatus(evento);
+// Returns: 'atrasado' (because date is before today)
+```
+
+<ParamField path="evento" type="object" required>
+  Event object with `status` and `data` fields
+</ParamField>
+
+<ResponseField name="return" type="string">
+  Event status: `'estudei'`, `'atrasado'`, or `'agendado'`
+</ResponseField>
+
+Logic:
+1. If `evento.status === 'estudei'` → return `'estudei'`
+2. If `evento.data < todayStr()` → return `'atrasado'`
+3. Otherwise → return `'agendado'`
+
+## Habit Types
+
+### HABIT_TYPES
+
+Array of study habit definitions.
+
+```javascript
+import { HABIT_TYPES } from './utils.js';
+
+HABIT_TYPES.forEach(habit => {
+  console.log(habit.label, habit.icon, habit.color);
+});
+```
+
+<ResponseField name="HABIT_TYPES" type="array">
+  Array of habit type objects
+</ResponseField>
+
+Each habit object contains:
+
+<ResponseField name="key" type="string">
+  Unique identifier (e.g., 'questoes', 'revisao')
+</ResponseField>
+
+<ResponseField name="label" type="string">
+  Display name (e.g., 'Questões', 'Revisão')
+</ResponseField>
+
+<ResponseField name="icon" type="string">
+  Emoji icon (e.g., '📝', '🔄')
+</ResponseField>
+
+<ResponseField name="color" type="string">
+  Hex color code (e.g., '#3b82f6')
+</ResponseField>
+
+### Available Habit Types
+
+| Key | Label | Icon | Color |
+|-----|-------|------|-------|
+| `questoes` | Questões | 📝 | #3b82f6 (blue) |
+| `revisao` | Revisão | 🔄 | #10b981 (green) |
+| `discursiva` | Discursiva | ✍️ | #f59e0b (amber) |
+| `simulado` | Simulado | 🎯 | #ef4444 (red) |
+| `leitura` | Leitura Seca | 📖 | #8b5cf6 (purple) |
+| `informativo` | Informativos | 📰 | #06b6d4 (cyan) |
+| `sumula` | Súmulas | ⚖️ | #6366f1 (indigo) |
+| `videoaula` | Videoaula | 📺 | #ec4899 (pink) |
+
+### getHabitType
+
+Get a habit type definition by key.
+
+```javascript
+import { getHabitType } from './utils.js';
+
+const questoes = getHabitType('questoes');
+console.log(questoes.label);  // 'Questões'
+console.log(questoes.icon);   // '📝'
+console.log(questoes.color);  // '#3b82f6'
+
+const unknown = getHabitType('invalid');
+// Returns: undefined
+```
+
+<ParamField path="key" type="string" required>
+  Habit type key
+</ParamField>
+
+<ResponseField name="return" type="object|undefined">
+  Habit type object or `undefined` if not found
+</ResponseField>
+
+## Usage Examples
+
+### Date Range Filtering
+
+```javascript
+import { todayStr, cutoffDateStr } from './utils.js';
+import { state } from './store.js';
+
+const today = todayStr();
+const weekAgo = cutoffDateStr(7);
+
+const thisWeekEvents = state.eventos.filter(e => 
+  e.data >= weekAgo && e.data <= today
+);
+```
+
+### Safe HTML Rendering
+
+```javascript
+import { esc } from './utils.js';
+
+function renderEventTitle(evento) {
+  return `
+    <div class="event-title">
+      ${esc(evento.titulo)}
+    </div>
+  `;
+}
+```
+
+### Time Display
+
+```javascript
+import { formatTime, getElapsedSeconds } from './utils.js';
+import { state } from './store.js';
+
+const evento = state.eventos[0];
+const elapsed = getElapsedSeconds(evento);
+const display = formatTime(elapsed);
+
+console.log(`Studied for ${display}`);
+// Output: 'Studied for 01:23:45'
+```
+
+### Habit Icon Display
+
+```javascript
+import { getHabitType } from './utils.js';
+
+function renderHabitBadge(habitKey) {
+  const habit = getHabitType(habitKey);
+  if (!habit) return '';
+  
+  return `
+    <span style="color: ${habit.color}">
+      ${habit.icon} ${habit.label}
+    </span>
+  `;
+}
+
+renderHabitBadge('questoes');
+// Returns: '<span style="color: #3b82f6">📝 Questões</span>'
+```
+
+### Unique ID Generation
+
+```javascript
+import { uid } from './utils.js';
+import { state, scheduleSave } from './store.js';
+
+const newEvent = {
+  id: 'ev_' + uid(),
+  titulo: 'Study Session',
+  data: todayStr(),
+  duracao: 60,
+  status: 'agendado',
+  tempoAcumulado: 0,
+  criadoEm: new Date().toISOString()
+};
+
+state.eventos.push(newEvent);
+scheduleSave();
+```
+
+## Performance Notes
+
+- **`todayStr()`** is cached and only computed once per session for performance
+- **`esc()`** is called frequently, so it's kept minimal (no regex, just string replacement)
+- **`getHabitType()`** uses `Array.find()` which is fast for small arrays (8 items)
+- **`formatTime()`** uses simple math operations (no Date object instantiation)
+
+## Type Safety
+
+While this is JavaScript, the utils are designed to be defensive:
+
+```javascript
+// esc() handles non-string inputs:
+esc(null);        // Returns: ''
+esc(undefined);   // Returns: ''
+esc(42);          // Returns: '42'
+esc('<b>Hi</b>'); // Returns: '&lt;b&gt;Hi&lt;/b&gt;'
+
+// formatDate() returns empty string for invalid input:
+formatDate(null);      // Returns: ''
+formatDate(undefined); // Returns: ''
+```

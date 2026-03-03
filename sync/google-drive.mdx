@@ -1,0 +1,389 @@
+---
+title: Google Drive Integration
+description: Set up automatic backup to Google Drive as a secondary sync layer for maximum data safety and cross-device accessibility.
+---
+
+# Google Drive Integration
+
+Add Google Drive as a **Layer 2 backup** to your synchronization strategy. This provides a failsafe backup mechanism that complements the fast Cloudflare edge sync.
+
+<Note>
+Google Drive sync serves as an additional safety net. It's slower than Cloudflare (3-5 seconds) but provides excellent long-term backup reliability.
+</Note>
+
+## Prerequisites
+
+- Google account
+- Google Cloud Console access
+- Estudo Organizado already set up (local or deployed)
+
+## Setup Google Drive API
+
+<Steps>
+  <Step title="Create Google Cloud Project">
+    1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+    2. Create a new project or select an existing one
+    3. Name it something like "Estudo Organizado"
+  </Step>
+
+  <Step title="Enable Drive API">
+    1. In the Cloud Console, go to **APIs & Services** → **Library**
+    2. Search for "Google Drive API"
+    3. Click on it and press **Enable**
+  </Step>
+
+  <Step title="Configure OAuth Consent Screen">
+    1. Go to **APIs & Services** → **OAuth consent screen**
+    2. Select **External** user type
+    3. Fill in:
+       - **App name**: Estudo Organizado
+       - **User support email**: Your email
+       - **Developer contact**: Your email
+    4. Click **Save and Continue**
+    5. Skip scopes (click **Save and Continue**)
+    6. Add yourself as a test user
+    7. Click **Save and Continue**
+  </Step>
+
+  <Step title="Create OAuth Client ID">
+    1. Go to **APIs & Services** → **Credentials**
+    2. Click **+ Create Credentials** → **OAuth client ID**
+    3. Application type: **Web application**
+    4. Name: "Estudo Organizado Web Client"
+    5. **Authorized JavaScript origins**: Add your domain(s)
+       - `http://localhost:8000` (for local testing)
+       - `https://estudo-organizado.pages.dev` (your Cloudflare URL)
+    6. **Authorized redirect URIs**: Same as origins
+    7. Click **Create**
+  </Step>
+
+  <Step title="Copy Client ID">
+    After creation, copy your **Client ID**. It looks like:
+    
+    ```
+    123456789-abcdefghijklmnop.apps.googleusercontent.com
+    ```
+    
+    <Warning>
+    Keep this Client ID safe - you'll need it to configure the app.
+    </Warning>
+  </Step>
+</Steps>
+
+## Configure in Application
+
+<Steps>
+  <Step title="Open Settings">
+    In Estudo Organizado, click the ⚙️ Settings icon
+  </Step>
+
+  <Step title="Enter Client ID">
+    1. Find the **Google Drive** section
+    2. Paste your Client ID into the input field
+    3. The page will reload to initialize the Google APIs
+  </Step>
+
+  <Step title="Connect to Drive">
+    1. Click the **Connect** button
+    2. A Google OAuth popup will appear
+    3. Select your Google account
+    4. Grant permission to access Drive files
+  </Step>
+
+  <Step title="Verify Connection">
+    You should see:
+    - Green dot indicator
+    - "Connected to Google Drive" message
+    - Last sync timestamp
+  </Step>
+</Steps>
+
+## How It Works
+
+### Initialization
+
+The Drive module loads Google's API libraries dynamically:
+
+```javascript
+// From drive-sync.js:14-27
+export function initGoogleAPIs() {
+    const CLIENT_ID = localStorage.getItem('estudo_drive_client_id');
+    if (!CLIENT_ID) return;
+
+    // Load GAPI (Google API client)
+    const scriptGapi = document.createElement('script');
+    scriptGapi.src = 'https://apis.google.com/js/api.js';
+    scriptGapi.onload = () => {
+        gapi.load('client', () => {
+            gapi.client.init({
+                discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+            }).then(() => { gapiInited = true; });
+        });
+    };
+    document.head.appendChild(scriptGapi);
+}
+```
+
+### File Storage
+
+Your data is stored as a single JSON file named `estudo-organizado-data.json` in your Google Drive.
+
+### Sync Strategy
+
+The system uses timestamp comparison to prevent data loss:
+
+```javascript
+// From drive-sync.js:157-171
+if (driveData.lastSync && state.lastSync && 
+    new Date(driveData.lastSync) > new Date(state.lastSync)) {
+    // Drive has newer version
+    showConfirm(
+        'Found newer version in Drive. Overwrite local data?',
+        () => {
+            setState(driveData);
+            saveStateToDB().then(() => {
+                showToast('Data updated from Drive!', 'success');
+            });
+        }
+    );
+}
+```
+
+<Note>
+If Drive has a newer version (e.g., from another device), you'll be asked before overwriting local data.
+</Note>
+
+### Automatic Sync
+
+Once connected, Drive automatically syncs with a 10-second debounce:
+
+```javascript
+// From drive-sync.js:256-264
+document.addEventListener('stateSaved', () => {
+    if (gapi.client?.getToken() !== null && state.driveFileId) {
+        // Debounce to prevent sync overload
+        if (window.driveSyncTimeout) clearTimeout(window.driveSyncTimeout);
+        window.driveSyncTimeout = setTimeout(() => {
+            SyncQueue.add(() => syncWithDrive());
+        }, 10000); // 10s debounce
+    }
+});
+```
+
+### Upload Process
+
+The system uses Google Drive's multipart upload API:
+
+```javascript
+// From drive-sync.js:187-209
+state.lastSync = new Date().toISOString();
+const accessToken = gapi.client.getToken().access_token;
+const metadata = { 
+    name: 'estudo-organizado-data.json', 
+    mimeType: 'application/json' 
+};
+
+const boundary = '-------314159265358979323846';
+const multipartRequestBody =
+    delimiter +
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+    JSON.stringify(metadata) +
+    delimiter +
+    'Content-Type: application/json\r\n\r\n' +
+    JSON.stringify(state) +
+    close_delim;
+
+await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files/${state.driveFileId}?uploadType=multipart`,
+    {
+        method: 'PATCH',
+        headers: {
+            'Authorization': 'Bearer ' + accessToken,
+            'Content-Type': 'multipart/related; boundary=' + boundary
+        },
+        body: multipartRequestBody
+    }
+);
+```
+
+## UI Indicators
+
+The app shows different status indicators:
+
+```javascript
+// From drive-sync.js:56-81
+if (status === 'connected') {
+    sub.textContent = state.lastSync 
+        ? `Synced: ${new Date(state.lastSync).toLocaleString('pt-BR')}` 
+        : 'Synchronized';
+    btn.textContent = 'Sync Now';
+} else if (status === 'syncing') {
+    sub.textContent = 'Syncing...';
+    btn.textContent = 'Please wait...';
+} else {
+    sub.textContent = 'Click to connect';
+    btn.textContent = 'Connect';
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Disconnected" icon="circle">
+    Gray dot - Not connected
+  </Card>
+  <Card title="Syncing" icon="spinner">
+    Yellow dot - Sync in progress
+  </Card>
+  <Card title="Connected" icon="check-circle">
+    Green dot - Synced successfully
+  </Card>
+</CardGroup>
+
+## Manual Sync
+
+You can manually trigger sync at any time:
+
+1. Open Settings (⚙️)
+2. Find the Google Drive section
+3. Click **Sync Now**
+
+This is useful when:
+- You want to ensure latest data is backed up
+- You're switching devices
+- You've made important changes
+
+## Disconnecting
+
+To disconnect Google Drive:
+
+<Steps>
+  <Step title="Open Settings">
+    Click the ⚙️ icon
+  </Step>
+
+  <Step title="Disconnect">
+    Scroll to Google Drive section and click **Disconnect**
+  </Step>
+
+  <Step title="Confirm">
+    The app will:
+    - Revoke access token
+    - Clear local Client ID
+    - Remove Drive file reference
+    - Update UI to disconnected state
+  </Step>
+</Steps>
+
+<Warning>
+Disconnecting does NOT delete your backup file from Drive. It only stops automatic syncing. Your data remains safe in Drive.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="OAuth popup blocked">
+    Your browser may be blocking popups:
+    
+    1. Look for popup blocker icon in address bar
+    2. Allow popups from your domain
+    3. Try clicking **Connect** again
+  </Accordion>
+
+  <Accordion title="'APIs not loaded' error">
+    The Google APIs failed to initialize:
+    
+    1. Check your internet connection
+    2. Verify Client ID is correct
+    3. Reload the page
+    4. Check browser console for errors
+  </Accordion>
+
+  <Accordion title="iOS Safari CORS errors">
+    Mobile Safari sometimes blocks cross-site cookies:
+    
+    1. Go to Settings → Safari
+    2. Disable "Prevent Cross-Site Tracking"
+    3. Try connecting again
+    4. Alternatively, use Cloudflare sync (works better on mobile)
+  </Accordion>
+
+  <Accordion title="Sync takes too long">
+    Drive sync is intentionally slower (3-5 seconds) than Cloudflare:
+    
+    1. This is normal behavior
+    2. Use Cloudflare sync for real-time needs
+    3. Use Drive as backup/secondary layer
+    4. Reduce sync frequency by working longer between syncs
+  </Accordion>
+
+  <Accordion title="Multiple devices conflict">
+    If you modify data on multiple devices simultaneously:
+    
+    1. The app will ask which version to keep
+    2. Choose the device with the most recent changes
+    3. Consider using Cloudflare sync for multi-device scenarios
+  </Accordion>
+</AccordionGroup>
+
+## Limitations
+
+<Warning>
+Be aware of these Drive sync limitations:
+</Warning>
+
+1. **Speed**: 3-5 second latency per sync operation
+2. **Mobile OAuth**: iOS Safari may have CORS issues with OAuth popups
+3. **File Size**: Large datasets (multi-MB) will sync slower
+4. **Quota**: Google Drive API has daily quota limits (unlikely to hit with normal use)
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Dual Sync">
+    Enable both Cloudflare (fast) and Drive (reliable backup):
+    
+    - Cloudflare: Real-time sync (less than 150ms)
+    - Drive: Background backup (10s debounce)
+  </Step>
+
+  <Step title="Regular Manual Syncs">
+    Before important sessions or switching devices:
+    
+    1. Click "Sync Now" in Drive settings
+    2. Wait for confirmation
+    3. Switch devices knowing data is fresh
+  </Step>
+
+  <Step title="Monitor Sync Status">
+    Check the status indicator regularly:
+    
+    - Green dot = Good to go
+    - Yellow = Wait a moment
+    - Gray = Not connected (re-connect if needed)
+  </Step>
+</Steps>
+
+## Comparison with Cloudflare Sync
+
+| Feature | Cloudflare | Google Drive |
+|---------|-----------|-------------|
+| **Speed** | Less than 150ms | 3-5 seconds |
+| **Latency** | Ultra-low | Moderate |
+| **Mobile** | Excellent | iOS Safari issues |
+| **Setup** | More steps | Simpler OAuth |
+| **Reliability** | Very high | Very high |
+| **Use case** | Real-time sync | Backup layer |
+
+<Tip>
+For the best experience, use **both** sync methods: Cloudflare for speed and Drive for safety.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cloudflare Setup" icon="cloud" href="/sync/cloudflare-setup">
+    Set up ultra-fast edge sync with Cloudflare Workers
+  </Card>
+  <Card title="Manual Backup" icon="download" href="/sync/backup-restore">
+    Learn about local JSON export/import
+  </Card>
+</CardGroup>

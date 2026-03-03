@@ -1,0 +1,378 @@
+---
+title: "Habit Tracking"
+description: "Track daily study habits including questions, revisions, simulated exams, reading, and more"
+---
+
+## Overview
+
+The **Habit Tracking** system monitors and quantifies your daily study activities. Track questions answered, pages read, video lessons watched, and other key habits to build consistency and measure progress.
+
+<Info>
+  Habits are automatically logged when you complete study sessions via the Session Registration modal.
+</Info>
+
+## Habit Types
+
+Estudo Organizado tracks 7 core habit types:
+
+| Icon | Habit | Key | Description |
+|------|-------|-----|-------------|
+| ❓ | **Questões** | `questoes` | Questions answered (includes total, correct, wrong) |
+| 🔄 | **Revisão** | `revisao` | Spaced repetition sessions completed |
+| 📝 | **Simulado** | `simulado` | Full practice exams taken |
+| 📖 | **Leitura** | `leitura` | Reading sessions (textbooks, PDFs, etc.) |
+| 📰 | **Informativos** | `informativo` | Legal news briefs and bulletins |
+| ✍️ | **Discursiva** | `discursiva` | Essay writing practice |
+| 🎬 | **Vídeoaula** | `videoaula` | Video lesson sessions |
+
+```js
+// Habit type definitions (utils.js)
+export const HABIT_TYPES = [
+  { key: 'questoes', label: 'Questões', icon: '❓', color: '#3b82f6' },
+  { key: 'revisao', label: 'Revisão', icon: '🔄', color: '#10b981' },
+  { key: 'simulado', label: 'Simulado', icon: '📝', color: '#f59e0b' },
+  { key: 'leitura', label: 'Leitura', icon: '📖', color: '#8b5cf6' },
+  { key: 'informativo', label: 'Informativos', icon: '📰', color: '#ec4899' },
+  { key: 'discursiva', label: 'Discursiva', icon: '✍️', color: '#06b6d4' },
+  { key: 'videoaula', label: 'Vídeoaula', icon: '🎬', color: '#84cc16' }
+];
+```
+
+## Habits Interface
+
+### Habit Cards Grid
+
+The main view displays habit cards in a responsive grid:
+
+```js
+// Habit cards rendering (views.js:1015-1035)
+export function renderHabitos(el) {
+  const cutoff = new Date(); 
+  cutoff.setDate(cutoff.getDate() - 7);
+  const cutoffStr = cutoff.toISOString().split('T')[0];
+
+  el.innerHTML = `
+    <div class="habit-grid">
+      ${HABIT_TYPES.map(h => {
+        const all = state.habitos[h.key] || [];
+        const recent = all.filter(r => r.data >= cutoffStr);
+        const total = h.key === 'questoes' 
+          ? all.reduce((s, q) => s + (q.quantidade || 1), 0) 
+          : all.length;
+        
+        return `
+          <div class="habit-card" onclick="openHabitModal('${h.key}')">
+            <div class="hc-icon">${h.icon}</div>
+            <div class="hc-label">${h.label}</div>
+            <div class="hc-count" style="color:${h.color};">${total}</div>
+            <div class="hc-sub">${recent.length} nos últimos 7 dias</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+```
+
+**Each card shows:**
+- Icon and color
+- Total count (all-time)
+- Recent count (last 7 days)
+
+### History Table
+
+Paginated table of all habit registrations:
+
+```js
+// Habit history rendering (views.js:1050-1088)
+export function renderHabitHistPage() {
+  const all = HABIT_TYPES
+    .flatMap(h => (state.habitos[h.key] || []).map(r => ({ ...r, tipo: h })))
+    .sort((a, b) => b.data.localeCompare(a.data));
+  
+  const page = habitHistPage;
+  const start = (page - 1) * HABIT_HIST_PAGE_SIZE; // 20 per page
+  const end = start + HABIT_HIST_PAGE_SIZE;
+  const items = all.slice(start, end);
+  
+  listEl.innerHTML = items.map(r => `
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);">
+      <div style="font-size:20px;">${r.tipo.icon}</div>
+      <div style="flex:1;">
+        <div style="font-weight:600;color:var(--text-primary);">${r.tipo.label}</div>
+        <div style="font-size:12px;color:var(--text-muted);">${formatDate(r.data)}</div>
+      </div>
+      <div style="text-align:right;font-size:13px;color:var(--text-secondary);">
+        ${r.quantidade ? `${r.quantidade} questões` : ''}
+        ${r.acertos ? `🟢 ${r.acertos}` : ''}
+        ${r.erros ? `🔴 ${r.erros}` : ''}
+        ${r.tempoMin ? `${r.tempoMin}min` : ''}
+      </div>
+      <button class="icon-btn" onclick="deleteHabitoRecord('${r.tipo.key}','${r.id}')">🗑</button>
+    </div>
+  `).join('');
+}
+```
+
+**Features:**
+- Sorted by date (newest first)
+- Shows habit type, date, and metrics
+- Delete button per record
+- Pagination controls (20 records per page)
+
+## Automatic Habit Logging
+
+Habits are registered automatically when you complete a study session:
+
+```js
+// Auto-registration during session save (registro-sessao.js:671-681)
+_selectedTipos.forEach(tipo => {
+  if (state.habitos[tipo]) {
+    state.habitos[tipo].push({
+      id: 'hab_' + uid(),
+      data: todayStr(),
+      eventoId: ev.id,
+      tempoMin: Math.round((ev.tempoAcumulado || 0) / 60),
+      ...(questoes && (tipo === 'questoes' || tipo === 'simulado') ? questoes : {})
+    });
+  }
+});
+```
+
+<Note>
+  If you select "Questões" and "Leitura" in the Session Registration modal, **both habits** are logged with the same event ID and timestamp.
+</Note>
+
+## Habit Data Structure
+
+### Questions Habit
+
+```js
+{
+  id: 'hab_1234567890',
+  data: '2026-03-03',
+  eventoId: 'ev_1234567890',
+  tempoMin: 45,
+  quantidade: 30, // Total questions
+  total: 30,
+  acertos: 24, // Correct answers
+  erros: 6 // Wrong answers
+}
+```
+
+### Simple Habit (Reading, Revision, etc.)
+
+```js
+{
+  id: 'hab_1234567890',
+  data: '2026-03-03',
+  eventoId: 'ev_1234567890',
+  tempoMin: 60
+}
+```
+
+## Using Habit Tracking
+
+<Steps>
+  <Step title="Complete a Study Session">
+    In the Study Organizer, finish a session and click "✅ Marcar como Estudei". The Session Registration modal opens.
+  </Step>
+
+  <Step title="Select Study Types">
+    In the "Tipo de estudo na sessão" section, click one or more habit type chips (e.g., Questões, Leitura).
+
+    ```js
+    // Study type selection (registro-sessao.js:373-385)
+    export function toggleStudyType(typeId) {
+      const idx = _selectedTipos.indexOf(typeId);
+      if (idx >= 0) _selectedTipos.splice(idx, 1);
+      else _selectedTipos.push(typeId);
+      
+      // Update chip visual
+      const chip = document.querySelector(`[data-tipo="${typeId}"]`);
+      if (chip) chip.classList.toggle('chip-active');
+      
+      // Re-render conditional fields
+      const container = document.getElementById('reg-resultados');
+      if (container) container.innerHTML = renderConditionalFields();
+    }
+    ```
+  </Step>
+
+  <Step title="Enter Results (if applicable)">
+    For **Questões** or **Simulado**, fill in:
+    - Total questions
+    - Correct answers
+    - Wrong answers
+
+    For **Leitura**, enter pages read or page range.
+  </Step>
+
+  <Step title="Save the Session">
+    Click "Salvar Registro". The system automatically creates habit records for all selected types.
+  </Step>
+
+  <Step title="View Habit History">
+    Navigate to **Hábitos** in the sidebar to see your habit cards and detailed history.
+  </Step>
+</Steps>
+
+## Questions Tracking
+
+Questions are tracked with special detail:
+
+```js
+// Question validation (registro-sessao.js:470-485)
+export function validateQuestoes() {
+  const total = parseInt(document.getElementById('reg-q-total')?.value || '0');
+  const ac = parseInt(document.getElementById('reg-q-acertos')?.value || '0');
+  const er = parseInt(document.getElementById('reg-q-erros')?.value || '0');
+  
+  if (ac + er > total && total > 0) {
+    fb.innerHTML = '<span style="color:var(--red);">⚠️ Acertos + Erros não pode ser maior que o Total</span>';
+  } else if (total > 0) {
+    const pct = Math.round((ac / total) * 100);
+    fb.innerHTML = `<span style="color:var(--green);">${pct}% de aproveitamento</span>`;
+  }
+}
+```
+
+**Validation:**
+- Total must be greater than 0
+- Acertos + Erros cannot exceed Total
+- Live percentage calculation displayed
+
+## Deleting Habit Records
+
+```js
+// Delete habit record (views.js:1090-1106)
+window.deleteHabitoRecord = function(tipoKey, habitoId) {
+  const arr = state.habitos[tipoKey];
+  if (!arr) return;
+  
+  showConfirm(
+    'Excluir este registro de hábito?',
+    () => {
+      const idx = arr.findIndex(h => h.id === habitoId);
+      if (idx > -1) {
+        arr.splice(idx, 1);
+        scheduleSave();
+        renderCurrentView();
+        showToast('Registro excluído', 'success');
+      }
+    },
+    { danger: true, label: 'Excluir' }
+  );
+};
+```
+
+<Warning>
+  Deleting a habit record **does not** delete the associated study event. It only removes the habit log.
+</Warning>
+
+## Habit Summaries in Dashboard
+
+Habit counts appear in the Dashboard:
+
+```js
+// Dashboard habit summary (views.js:811-826)
+export function renderHabitSummary(periodDays) {
+  const cutoffStr = periodDays ? cutoffDateStr(periodDays) : null;
+  
+  return HABIT_TYPES.map(h => {
+    const recent = cutoffStr
+      ? (state.habitos[h.key] || []).filter(r => r.data >= cutoffStr)
+      : (state.habitos[h.key] || []);
+    
+    const count = h.key === 'questoes' 
+      ? recent.reduce((s, q) => s + (q.quantidade || 1), 0) 
+      : recent.length;
+    
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <div style="font-size:18px;">${h.icon}</div>
+        <div style="flex:1;font-size:13px;font-weight:500;">${h.label}</div>
+        <div style="font-size:16px;font-weight:700;color:${h.color};">${count}</div>
+      </div>
+    `;
+  }).join('');
+}
+```
+
+## Pagination
+
+History uses manual pagination:
+
+```js
+// Pagination controls (views.js:1059-1088)
+export let habitHistPage = 1;
+export const HABIT_HIST_PAGE_SIZE = 20;
+
+const totalPages = Math.max(1, Math.ceil(total / HABIT_HIST_PAGE_SIZE));
+
+const footerEl = document.getElementById('habit-hist-footer');
+if (footerEl) {
+  footerEl.innerHTML = `
+    <button class="btn btn-ghost btn-sm" 
+            onclick="habitHistPage=Math.max(1,habitHistPage-1);renderHabitHistPage()" 
+            ${page === 1 ? 'disabled' : ''}>
+      ← Anterior
+    </button>
+    <span style="flex:1;text-align:center;font-size:13px;color:var(--text-secondary);">
+      Página ${page} de ${totalPages}
+    </span>
+    <button class="btn btn-ghost btn-sm" 
+            onclick="habitHistPage=Math.min(${totalPages},habitHistPage+1);renderHabitHistPage()" 
+            ${page === totalPages ? 'disabled' : ''}>
+      Próxima →
+    </button>
+  `;
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Set Daily Goals">
+    Establish daily targets for key habits (e.g., 50 questions, 30 pages read). Track progress in the Habits view.
+  </Accordion>
+
+  <Accordion title="Use Multiple Habit Types">
+    Don't rely solely on one study method. Mix questions, reading, and video lessons for comprehensive learning.
+  </Accordion>
+
+  <Accordion title="Review Weekly Trends">
+    Check the "nos últimos 7 dias" counter on each habit card to ensure consistency week-over-week.
+  </Accordion>
+
+  <Accordion title="Quality Over Quantity">
+    Logging 100 questions is meaningless if you're not learning from mistakes. Focus on understanding, not just volume.
+  </Accordion>
+</AccordionGroup>
+
+## Integration with Performance Stats
+
+Habits feed into the Home page analytics:
+
+```js
+// Performance calculation (logic.js:304-318)
+export function getPerformanceStats() {
+  let questionsTotal = 0;
+  let questionsCorrect = 0;
+  let questionsWrong = 0;
+
+  state.eventos.forEach(ev => {
+    if (ev.status === 'estudei' && ev.sessao && ev.sessao.questoes) {
+      questionsTotal += ev.sessao.questoes.total || 0;
+      questionsCorrect += ev.sessao.questoes.acertos || 0;
+      questionsWrong += ev.sessao.questoes.erros || 0;
+    }
+  });
+
+  return { questionsTotal, questionsCorrect, questionsWrong };
+}
+```
+
+<Note>
+  Question performance is calculated from **event sessions**, not directly from habit records. Habits are a secondary log for tracking consistency.
+</Note>

@@ -1,0 +1,479 @@
+---
+title: Testing Approach
+description: Manual testing strategies for Estudo Organizado, including browser testing, PWA validation, and feature verification.
+---
+
+## Testing Philosophy
+
+Estudo Organizado uses **manual testing** as its primary quality assurance approach. Since the project is built with Vanilla JavaScript without a testing framework, contributors must thoroughly test their changes across different browsers and scenarios.
+
+<Warning>
+There is no automated test suite. All testing must be performed manually. This makes thorough testing even more critical before submitting pull requests.
+</Warning>
+
+## Browser Testing
+
+### Supported Browsers
+
+Test your changes on all major browsers:
+
+| Browser | Minimum Version | Priority | Notes |
+|---------|----------------|----------|-------|
+| **Chrome** | 90+ | High | Primary development browser |
+| **Firefox** | 88+ | High | Important for PWA testing |
+| **Safari** | 14+ | High | iOS users, WebKit engine |
+| **Edge** | 90+ | Medium | Chromium-based |
+
+### Browser-Specific Testing
+
+<Accordion title="Chrome DevTools Testing">
+1. **Open DevTools** (F12)
+2. **Check Console** for errors
+3. **Application tab**:
+   - Verify IndexedDB structure
+   - Check Service Worker status
+   - Inspect Cache Storage
+   - Test manifest.json
+4. **Network tab**:
+   - Test offline mode (toggle offline)
+   - Verify resource caching
+5. **Performance tab**:
+   - Check for memory leaks
+   - Profile heavy operations
+</Accordion>
+
+<Accordion title="Firefox Testing">
+1. **Open Developer Tools** (F12)
+2. **Storage Inspector**:
+   - Verify IndexedDB data
+   - Check localStorage migration
+3. **Console**:
+   - Look for warnings and errors
+4. **Network Monitor**:
+   - Test offline functionality
+   - Verify Service Worker caching
+</Accordion>
+
+<Accordion title="Safari Testing">
+1. **Enable Developer Tools** (Preferences > Advanced)
+2. **Web Inspector**:
+   - Check for iOS-specific issues
+   - Test touch interactions
+3. **Storage tab**:
+   - Verify IndexedDB compatibility
+4. **Console**:
+   - Look for WebKit-specific errors
+</Accordion>
+
+## PWA Testing
+
+### Service Worker Validation
+
+The Service Worker (`sw.js`) is critical for offline functionality:
+
+#### Installation Test
+
+1. **Open the app** in a supported browser
+2. **Check DevTools > Application > Service Workers**
+3. Verify status shows "activated and running"
+4. Check registration scope is `/`
+
+```javascript
+// Expected in console
+Service Worker registrado com sucesso
+```
+
+#### Cache Test
+
+1. **Load the app** with network enabled
+2. **Open DevTools > Application > Cache Storage**
+3. Verify cache named `estudo-organizado-v1` exists
+4. Check that all static assets are cached:
+   - `/src/index.html`
+   - `/src/css/*.css`
+   - `/src/js/*.js`
+   - Icons and manifest
+
+#### Offline Mode Test
+
+1. **Load the app** normally
+2. **Open DevTools > Network tab**
+3. **Enable offline mode** (throttling dropdown)
+4. **Refresh the page**
+5. **Verify**:
+   - Page loads successfully
+   - All features work (reading data)
+   - UI shows offline indicator if implemented
+
+<Note>
+Offline mode should allow reading all data. Write operations should queue and sync when online.
+</Note>
+
+### PWA Installation Test
+
+#### Desktop Installation
+
+1. **Open the app** in Chrome/Edge
+2. **Look for install icon** in address bar
+3. **Click install**
+4. **Verify**:
+   - App opens in standalone window
+   - No browser chrome visible
+   - Correct app name and icon
+
+#### Mobile Installation (iOS)
+
+1. **Open in Safari** on iPhone/iPad
+2. **Tap Share button**
+3. **Select "Add to Home Screen"**
+4. **Verify**:
+   - App appears on home screen
+   - Correct icon and name
+   - Opens in fullscreen
+   - No Safari UI
+
+#### Mobile Installation (Android)
+
+1. **Open in Chrome** on Android
+2. **Tap "Add to Home Screen"** prompt
+3. **Verify**:
+   - Install banner appears
+   - App installs successfully
+   - Opens in standalone mode
+
+### Manifest Validation
+
+Verify `manifest.json` is properly configured:
+
+1. **Open DevTools > Application > Manifest**
+2. **Check all fields**:
+   - Name: "Estudo Organizado"
+   - Icons: Multiple sizes present
+   - Theme color matches app
+   - Display: "standalone"
+   - Start URL: "/"
+
+## Feature Testing
+
+### State Management Testing
+
+#### IndexedDB Persistence
+
+1. **Create test data**:
+   - Add an edital
+   - Create a study event
+   - Set up a review
+2. **Close the browser** completely
+3. **Reopen the app**
+4. **Verify**:
+   - All data persists
+   - No data loss
+   - No corruption
+
+#### LocalStorage Migration
+
+1. **Manually add** old data to localStorage:
+   ```javascript
+   localStorage.setItem('estudo_state', JSON.stringify({
+     editais: [{ nome: 'Test' }]
+   }));
+   ```
+2. **Refresh the page**
+3. **Verify**:
+   - Data migrates to IndexedDB
+   - localStorage key is removed
+   - Data appears in app
+
+### Timer Testing
+
+<Warning>
+Timer bugs are critical as they affect study tracking. Test thoroughly!
+</Warning>
+
+#### Free Timer Test
+
+1. **Start free timer** (cronômetro livre)
+2. **Let it run** for 30+ seconds
+3. **Test scenarios**:
+   - Pause and resume
+   - Navigate to other tabs
+   - Return to timer tab
+   - Refresh page (should reset)
+   - Close tab and reopen (should reset)
+
+#### Event Timer Test
+
+1. **Create study event**
+2. **Start event timer**
+3. **Test scenarios**:
+   - Pause and resume
+   - Switch between events
+   - Navigate to other modules
+   - Refresh page (should reset per session logic)
+   - Multiple timers (should only one run)
+
+#### Expected Timer Behavior
+
+From `store.js:96-108`:
+
+```javascript
+// BUG 3: Prevenir persistência inflada de timer ao fechar a aba
+const isSameSession = sessionStorage.getItem('estudo_session_active');
+if (!isSameSession) {
+  if (loadedState.cronoLivre && loadedState.cronoLivre._timerStart) {
+    loadedState.cronoLivre._timerStart = null;
+  }
+}
+```
+
+**Expected**: Timers reset between browser sessions, persist within same session.
+
+### Sync Testing
+
+#### Cloudflare Sync
+
+1. **Configure Cloudflare Worker** (see setup docs)
+2. **Enable sync** in Configurações
+3. **Make changes** (add event, modify edital)
+4. **Wait for debounce** (2 seconds)
+5. **Check DevTools Console**:
+   - Look for sync success messages
+   - Verify no errors
+6. **Open on different device**
+7. **Verify data synced**
+
+#### Google Drive Backup
+
+1. **Connect Google Drive** in settings
+2. **Trigger backup**
+3. **Check Google Drive**:
+   - File created/updated
+   - Contains valid JSON
+4. **Restore from backup**
+5. **Verify data integrity**
+
+### Migration Testing
+
+When modifying schema migrations (`store.js:222-343`):
+
+#### Test Each Migration Path
+
+1. **Create mock data** at old schema version:
+   ```javascript
+   const oldState = {
+     schemaVersion: 6,
+     editais: [/* old format */]
+   };
+   ```
+2. **Manually set** in IndexedDB
+3. **Reload app**
+4. **Verify**:
+   - Migration runs
+   - Schema version updates
+   - Data transforms correctly
+   - No data loss
+
+<Accordion title="Migration Test Checklist">
+- ✅ Schema version 1 → 2
+- ✅ Schema version 2 → 3
+- ✅ Schema version 3 → 4
+- ✅ Schema version 4 → 5
+- ✅ Schema version 6 → 7 (Wave 39)
+- ✅ Direct jump from v1 to latest
+- ✅ Invalid/corrupt data handling
+</Accordion>
+
+## Module-Specific Testing
+
+### Study Organizer Module
+
+- Create study events
+- Start/pause/stop timers
+- Mark events as complete
+- Verify time tracking accuracy
+- Test Pomodoro integration
+
+### Calendar Module
+
+- Switch between month/week views
+- Create events on specific dates
+- Drag and drop events (if applicable)
+- Navigate between months
+- Test first day of week setting
+
+### Dashboard Module
+
+- Verify metrics accuracy:
+  - Total study time
+  - Sessions count
+  - Questions completed
+  - Simulated exams
+- Test date range filters
+- Check chart rendering
+
+### Review System
+
+- Create reviews
+- Test spaced repetition intervals (1, 7, 30, 90 days)
+- Mark reviews as complete
+- Verify next review date calculation
+- Test custom intervals
+
+### Habits Tracking
+
+- Track different habit types:
+  - Questões (questions)
+  - Revisão (review)
+  - Videoaula (video lessons)
+  - Simulado (simulated exams)
+- Verify data persists
+- Check habit streaks
+
+### Exam Analysis (Inteligência de Banca)
+
+- Add exam topics
+- Run relevance analysis
+- Test NLP/fuzzy matching
+- Save analysis reports
+- Load saved analyses
+- Edit scores
+- Delete analyses
+
+## Performance Testing
+
+### Load Testing
+
+1. **Create large datasets**:
+   - 100+ events
+   - 10+ editais with many subjects
+   - 50+ reviews
+2. **Test performance**:
+   - Calendar rendering
+   - Dashboard calculations
+   - Search/filter operations
+3. **Check for**:
+   - UI lag
+   - Memory leaks (DevTools Memory tab)
+   - Slow database queries
+
+### Debounce Verification
+
+From `store.js:182-192`:
+
+```javascript
+export function scheduleSave() {
+  if (saveTimeout) clearTimeout(saveTimeout);
+  
+  saveTimeout = setTimeout(() => {
+    saveStateToDB();
+  }, 2000); // 2 second debounce
+}
+```
+
+**Test**: Make rapid changes, verify save only happens once after 2 seconds.
+
+## Testing Checklist
+
+Before submitting a PR, verify:
+
+### Core Functionality
+- ✅ App loads without errors
+- ✅ IndexedDB initializes correctly
+- ✅ Service Worker registers
+- ✅ Data persists across sessions
+- ✅ All modules render correctly
+
+### Cross-Browser
+- ✅ Chrome works
+- ✅ Firefox works
+- ✅ Safari works (if possible)
+- ✅ Edge works
+
+### PWA Features
+- ✅ Installable on desktop
+- ✅ Installable on mobile
+- ✅ Works offline
+- ✅ Caches correctly
+- ✅ Updates properly
+
+### State Management
+- ✅ Data saves correctly
+- ✅ Data loads correctly
+- ✅ Migrations work
+- ✅ No data loss
+
+### Timers
+- ✅ Start/pause/stop work
+- ✅ Time accumulates correctly
+- ✅ Reset on session end
+- ✅ No inflation bugs
+
+### Sync (if applicable)
+- ✅ Cloudflare sync works
+- ✅ Google Drive backup works
+- ✅ No sync conflicts
+
+### Performance
+- ✅ No memory leaks
+- ✅ Fast rendering
+- ✅ Debounce working
+- ✅ Smooth interactions
+
+## Reporting Test Results
+
+When submitting a PR, include:
+
+```markdown
+## Testing Performed
+
+### Browsers Tested
+- ✅ Chrome 120 (Windows 11)
+- ✅ Firefox 119 (Windows 11)
+- ✅ Safari 17 (macOS Sonoma)
+
+### Features Tested
+- ✅ Timer functionality (free and event timers)
+- ✅ Data persistence (IndexedDB)
+- ✅ Offline mode
+- ✅ Calendar rendering
+- ✅ Review system
+
+### Scenarios Tested
+1. Created 50 test events
+2. Tested timer pause/resume 20+ times
+3. Refreshed page 10+ times
+4. Tested offline mode for 5 minutes
+5. Verified data persists after browser restart
+
+### Issues Found
+None / [List any issues]
+```
+
+## Common Issues to Watch For
+
+### Timer Inflation
+- Timers continuing to run after page close
+- Accumulated time showing incorrect values
+- Multiple timers running simultaneously
+
+### Data Loss
+- IndexedDB not initializing
+- Migration failures
+- Sync conflicts
+- LocalStorage not migrating
+
+### PWA Issues
+- Service Worker not registering
+- Cache not updating
+- Offline mode not working
+- Install prompt not showing
+
+### Performance
+- Slow calendar rendering with many events
+- Memory leaks from event listeners
+- Excessive database writes
+- Missing debounce causing too many saves
+
+<Note>
+When in doubt, test more! The lack of automated tests means manual testing is our safety net.
+</Note>

@@ -1,0 +1,333 @@
+---
+title: "Relevance Engine"
+description: "AI-powered topic relevance scoring system that prioritizes study content based on exam board statistics and fuzzy matching algorithms"
+---
+
+The **Relevance Engine** is the core intelligence system that analyzes exam topics from editais (official exam syllabi) and assigns priority scores based on historical data from specific exam boards (bancas). It combines incidence statistics with confidence matching to generate P1/P2/P3 priority classifications.
+
+## Overview
+
+The relevance engine processes exam topics through a multi-stage pipeline:
+
+1. **Match Detection** - Finds the best matching topic from banca statistics
+2. **Score Calculation** - Combines incidence weight with match confidence
+3. **Priority Classification** - Assigns P1 (high), P2 (medium), or P3 (low) priority
+4. **Edital Ranking** - Sorts all topics by final relevance score
+
+<Note>
+The engine uses a combination of exact matching, partial inclusion, and NLP-based fuzzy matching to handle variations in topic naming across different exam boards.
+</Note>
+
+## Core Algorithm: calculateFinalRelevance
+
+The `calculateFinalRelevance` function is the heart of the scoring system. It takes an exam topic and returns a priority classification with justification.
+
+### Function Signature
+
+```javascript
+calculateFinalRelevance(editalSubjectCtx)
+```
+
+**Input Context:**
+```javascript
+{
+  assuntoNome: "Direito Constitucional - Princípios Fundamentais",
+  disciplinaId: "disc_123",
+  acertos: 15,    // correct answers
+  erros: 8        // incorrect answers
+}
+```
+
+**Output:**
+```javascript
+{
+  finalScore: 85,           // 0-100 score
+  priority: "P1",           // P1, P2, or P3
+  matchData: {
+    matchedItem: {...},     // matched banca topic
+    score: 0.95,            // match confidence (0-1)
+    confidence: "HIGH",     // HIGH/MEDIUM/LOW
+    reason: "Match Exato de Título"
+  }
+}
+```
+
+### Scoring Components
+
+#### A. Incidence Score (Banca Statistics)
+
+The incidence score represents how frequently this topic appears in exams from the specific board:
+
+```javascript
+// From weight (0-100 or 0-1)
+if (ht.weight !== undefined) {
+    incidenceScore = ht.weight;
+    if (incidenceScore > 1) incidenceScore = incidenceScore / 100;
+}
+
+// From rank (1 = highest priority)
+else if (ht.rank !== undefined) {
+    // Rank #1 = peso máximo, decai progressivamente
+    incidenceScore = 1 / Math.pow(ht.rank, 0.7);
+}
+
+// From categorical level
+else if (ht.level !== undefined) {
+    incidenceScore = ht.level === 'ALTA' ? 1.0 : 
+                    (ht.level === 'MEDIA' ? 0.6 : 0.3);
+}
+```
+
+<Accordion title="Why use power of 0.7 for rank decay?">
+The exponent 0.7 creates a logarithmic decay curve that prevents lower-ranked items from dropping to zero too quickly. This ensures that even rank #10 topics maintain meaningful relevance:
+
+- Rank 1: score = 1.00
+- Rank 2: score = 0.62
+- Rank 5: score = 0.33
+- Rank 10: score = 0.20
+
+This models the real-world distribution where top topics are critical but secondary topics still matter.
+</Accordion>
+
+#### B. Match Score (String Similarity)
+
+The match score reflects how confident the system is that the edital topic matches the banca topic. This is calculated by the `findBestMatch` function (see [NLP & Fuzzy Match](/architecture/nlp-fuzzy-match)).
+
+```javascript
+// Final score combines both factors
+let finalScore = incidenceScore * matchStruct.score;
+```
+
+<Warning>
+**Critical:** If the string match is only 50% confident, the final score is cut in half - even if the topic has 100% incidence. This prevents false positives from inflating priorities.
+</Warning>
+
+#### C. Context Bonus (Performance-Based)
+
+Students struggling with a topic get a +0.1 boost to ensure they prioritize improving weak areas:
+
+```javascript
+if (editalSubjectCtx.erros / (editalSubjectCtx.acertos + editalSubjectCtx.erros + 1) > 0.6) {
+    finalScore += 0.1;  // Boost priority for topics with >60% error rate
+}
+```
+
+### Priority Thresholds
+
+Final scores are classified into three priority levels:
+
+```javascript
+let priority = 'P3';
+if (finalScore >= 0.75) priority = 'P1';       // Top 25% - Critical
+else if (finalScore >= 0.40) priority = 'P2';  // Middle 35% - Important
+// else P3 - Lower priority
+```
+
+<Note>
+**P1 (Priority 1):** Topics with ≥75% score - highest incidence and confident match. Study these first.
+
+**P2 (Priority 2):** Topics with 40-74% score - moderate importance or uncertain matches. Study after P1.
+
+**P3 (Priority 3):** Topics with less than 40% score - low incidence or poor match confidence. Study if time permits.
+</Note>
+
+## Edital-Wide Ranking: applyRankingToEdital
+
+The `applyRankingToEdital` function processes an entire edital (exam syllabus) and ranks all topics globally.
+
+### Algorithm Flow
+
+```javascript
+export function applyRankingToEdital(editalId) {
+    const edt = state.editais.find(e => e.id === editalId);
+    if (!edt) return [];
+
+    let flatList = [];
+
+    // 1. Calculate score for every topic
+    edt.disciplinas.forEach(d => {
+        d.assuntos.forEach(a => {
+            const result = calculateFinalRelevance({
+                assuntoNome: a.nome,
+                disciplinaId: d.id,
+                acertos: a.acertos || 0,
+                erros: a.erros || 0
+            });
+
+            flatList.push({
+                discId: d.id,
+                discNome: d.nome,
+                assuntoId: a.id,
+                assuntoNome: a.nome,
+                ...result
+            });
+        });
+    });
+
+    // 2. Sort by final score (highest first)
+    flatList.sort((a, b) => b.finalScore - a.finalScore);
+
+    // 3. Apply percentile-based priority bands
+    const top20Index = Math.max(0, Math.floor(flatList.length * 0.2) - 1);
+    const top60Index = Math.max(0, Math.floor(flatList.length * 0.6) - 1);
+
+    flatList.forEach((item, index) => {
+        if (index <= top20Index) item.priority = 'P1';
+        else if (index <= top60Index) item.priority = 'P2';
+        else item.priority = 'P3';
+    });
+
+    return flatList;
+}
+```
+
+### Percentile-Based Classification
+
+After global ranking, priorities are reassigned based on position:
+
+- **Top 20%** → P1 (highest priority topics across all disciplines)
+- **Next 40%** (20-60%) → P2
+- **Bottom 40%** (60-100%) → P3
+
+<Accordion title="Why recompute priorities after sorting?">
+Individual topic scores are relative to their banca data, but study priorities should be relative to the **entire edital**. A topic might score 0.80 individually, but if 25% of topics score higher, it becomes P2 in context.
+
+This ensures the P1 classification truly represents the most critical topics for **this specific exam**.
+</Accordion>
+
+## User Mapping Overrides
+
+The system supports manual corrections through `userMappings` - allowing students to fix incorrect matches:
+
+```javascript
+const userMap = state.bancaRelevance?.userMappings?.[editalSubjectName];
+
+// User marked as "no incidence"
+if (userMap === 'NONE') {
+    return { 
+        matchedItem: null, 
+        score: 0.05, 
+        confidence: 'HIGH', 
+        reason: 'Marcado como sem incidência pelo usuário' 
+    };
+}
+
+// User manually linked to specific banca topic
+const forcedMatch = hotTopics.find(h => h.id === userMap);
+if (forcedMatch) {
+    return { 
+        matchedItem: forcedMatch, 
+        score: 1.0, 
+        confidence: 'HIGH', 
+        reason: 'Mapeamento Fixado Manualmente' 
+    };
+}
+```
+
+<Warning>
+Manual mappings always take precedence over algorithmic matching. This is critical for exam-specific terminology variations that the fuzzy matcher might miss.
+</Warning>
+
+## Persistence: commitEditalOrdering
+
+Once the user reviews and approves the ranking, `commitEditalOrdering` persists the relevance data to each topic:
+
+```javascript
+export function commitEditalOrdering(editalId, rankedFlatList) {
+    const edt = state.editais.find(e => e.id === editalId);
+    if (!edt) return false;
+
+    // Group ranked topics by discipline
+    const grouped = {};
+    rankedFlatList.forEach(item => {
+        if (!grouped[item.discId]) grouped[item.discId] = [];
+        grouped[item.discId].push(item);
+    });
+
+    // Update each discipline's topic order
+    edt.disciplinas.forEach(d => {
+        const sortedItemsForDisc = grouped[d.id] || [];
+        const newAssuntosArray = [];
+        
+        sortedItemsForDisc.forEach(sItem => {
+            const originalAssunto = d.assuntos.find(a => a.id === sItem.assuntoId);
+            if (originalAssunto) {
+                // Inject relevance metadata
+                originalAssunto.relevance = {
+                    priority: sItem.priority,
+                    finalScore: sItem.finalScore,
+                    reason: sItem.reason,
+                    confidence: sItem.confidence
+                };
+                newAssuntosArray.push(originalAssunto);
+            }
+        });
+
+        d.assuntos = newAssuntosArray;
+    });
+
+    scheduleSave();
+    return true;
+}
+```
+
+After commit, each topic has:
+
+```javascript
+assunto.relevance = {
+    priority: "P1",
+    finalScore: 85,
+    reason: "Match Exato de Título",
+    confidence: "HIGH"
+}
+```
+
+## Example: Complete Flow
+
+```javascript
+// 1. Import exam syllabus (edital)
+const edital = {
+    id: "edital_tcu_2024",
+    banca: "CESPE",
+    disciplinas: [
+        {
+            id: "disc_1",
+            nome: "Direito Constitucional",
+            assuntos: [
+                { id: "a1", nome: "Princípios Fundamentais", acertos: 10, erros: 2 },
+                { id: "a2", nome: "Direitos Sociais", acertos: 5, erros: 8 }
+            ]
+        }
+    ]
+};
+
+// 2. Apply ranking
+const ranked = applyRankingToEdital("edital_tcu_2024");
+// [
+//   { assuntoNome: "Princípios Fundamentais", finalScore: 92, priority: "P1", ... },
+//   { assuntoNome: "Direitos Sociais", finalScore: 68, priority: "P2", ... }
+// ]
+
+// 3. Review and commit
+commitEditalOrdering("edital_tcu_2024", ranked);
+
+// 4. Topics now have relevance metadata
+console.log(edital.disciplinas[0].assuntos[0].relevance);
+// { priority: "P1", finalScore: 92, confidence: "HIGH", reason: "Match Exato de Título" }
+```
+
+## Related Systems
+
+- [NLP & Fuzzy Match](/architecture/nlp-fuzzy-match) - String similarity algorithms used by `findBestMatch`
+- [State Management](/architecture/state-management) - How relevance data is stored in `state.bancaRelevance`
+
+## Performance Considerations
+
+<Note>
+**Computational Complexity:** For an edital with 200 topics and 500 hot topics in the banca database:
+- Worst case: 200 × 500 = 100,000 comparisons
+- Each comparison involves tokenization and fuzzy matching
+- Typical runtime: less than 500ms on modern browsers
+</Note>
+
+The engine caches tokenization results and uses early exit strategies (exact matches skip fuzzy logic) to maintain performance.

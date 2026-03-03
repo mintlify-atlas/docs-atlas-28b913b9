@@ -1,0 +1,222 @@
+---
+title: Study Cycles
+description: Learn how study cycles work in Estudo Organizado, including the PDCA-based approach, completing cycles, and restarting them
+---
+
+# Study Cycles
+
+Study cycles in Estudo Organizado are based on a continuous rotation system where subjects repeat in a predetermined sequence. This approach is inspired by the PDCA (Plan-Do-Check-Act) methodology, allowing for flexible study schedules that adapt to your daily routine.
+
+## What is a Study Cycle?
+
+A study cycle is a **continuous sequence** of subjects that rotates automatically. Unlike fixed weekly schedules, cycles are independent of calendar days — they're measured by the total hours you study, not by which day of the week it is.
+
+<Note>
+The cycle-based approach is **recommended for students with flexible routines** who can't guarantee studying at the same time every day. If you miss a day, you don't "lose" a subject — you simply pick up where you left off.
+</Note>
+
+### Key Characteristics
+
+- **Time-based completion**: A cycle completes when you reach your target total hours (e.g., 30 hours)
+- **Subject rotation**: Subjects are studied in a repeating sequence based on their calculated relevance weights
+- **Automatic progression**: The system tracks which subject is next, resuming from the last incomplete block
+- **Flexible scheduling**: Not tied to specific days or times — study whenever you can
+
+## How Cycles Work
+
+The cycle system operates through several key mechanisms defined in `logic.js:562-657`:
+
+### 1. Cycle Generation
+
+When you create a study plan with cycle mode, the system:
+
+<Steps>
+  <Step title="Calculate time distribution">
+    The total weekly hours are distributed among subjects based on their **relevance weights** (importance × knowledge gap)
+  </Step>
+  
+  <Step title="Create study blocks">
+    Each subject is divided into blocks between your minimum and maximum session times (e.g., 30-120 minutes)
+  </Step>
+  
+  <Step title="Sort by priority">
+    Subjects are ordered by weight, with higher-priority subjects appearing more frequently in the sequence
+  </Step>
+  
+  <Step title="Generate rotation sequence">
+    A complete sequence is created that you'll cycle through repeatedly
+  </Step>
+</Steps>
+
+```javascript
+// From logic.js:575-609
+if (plan.tipo === 'ciclo') {
+  const horasSemanais = parseFloat(plan.horarios.horasSemanais) || 0;
+  const totalMinutes = horasSemanais * 60;
+  const minSessao = parseInt(plan.horarios.sessaoMin, 10) || 30;
+  const maxSessao = parseInt(plan.horarios.sessaoMax, 10) || 120;
+
+  // Sort subjects by weight (highest priority first)
+  const sortedDiscs = [...plan.disciplinas].sort((a, b) => {
+    const wA = plan.relevancia[a]?.peso || 0;
+    const wB = plan.relevancia[b]?.peso || 0;
+    return wB - wA;
+  });
+
+  // For each subject, create blocks based on its percentage
+  sortedDiscs.forEach(discId => {
+    const perc = plan.relevancia[discId]?.percentual || 0;
+    let targetMinutes = Math.round((perc / 100) * totalMinutes);
+
+    // Create blocks within session limits
+    let remaining = targetMinutes;
+    while (remaining > 0) {
+      let block = Math.min(remaining, maxSessao);
+      plan.sequencia.push({
+        id: 'seq_' + uid(),
+        discId: discId,
+        minutosAlvo: block,
+        concluido: false
+      });
+      remaining -= block;
+    }
+  });
+}
+```
+
+### 2. Tracking Progress
+
+The system tracks your position in the cycle:
+
+- **Current sequence index**: Which block you're studying now (see `logic.js:722-726`)
+- **Completed blocks**: Marked with `concluido: true` when you finish a study session
+- **Cycle completions**: Counter increments when you complete all blocks (`ciclosCompletos`)
+
+### 3. Automatic Event Scheduling
+
+Events are auto-generated for the next 14 days based on the `materiasPorDia` setting:
+
+```javascript
+// From logic.js:706-763
+const materiasPorDia = state.config.materiasPorDia || 3;
+let currentSeqIdx = 0;
+
+// Find first pending block
+const firstPendentIndex = seq.findIndex(s => !s.concluido);
+if (firstPendentIndex !== -1) currentSeqIdx = firstPendentIndex;
+
+// Generate events for next 14 days
+for (let diasOffset = 0; diasOffset < 14; diasOffset++) {
+  // For each day, create events for N subjects
+  for (let m = 0; m < materiasPorDia; m++) {
+    const seqItem = seq[currentSeqIdx];
+    // Create event...
+    currentSeqIdx = (currentSeqIdx + 1) % seq.length; // Wrap around
+  }
+}
+```
+
+<Warning>
+Auto-generated events are refreshed when you sync the cycle. Events in the past with no study time are automatically removed to keep your calendar clean.
+</Warning>
+
+## Completing a Cycle
+
+A cycle is considered complete when:
+
+1. All blocks in the sequence have `concluido: true`
+2. You've studied the total planned hours for the cycle
+3. The system increments `ciclosCompletos` counter
+
+### What Happens After Completion?
+
+When you complete a cycle:
+
+- The `concluido` flags reset to `false` for all blocks
+- `ciclosCompletos` increments by 1
+- The sequence starts over from the beginning
+- A new `dataInicioCicloAtual` timestamp is recorded
+
+## Restarting a Cycle
+
+You can manually restart a cycle at any time:
+
+<Accordion title="Restart vs. Recreate">
+  **Restarting** clears all progress but keeps the same sequence and subject distribution. **Recreating** (via the planning wizard) builds a completely new cycle with potentially different subjects and weights.
+</Accordion>
+
+To restart a cycle:
+
+1. Navigate to the Cycles view
+2. Click the restart/refresh button
+3. Confirm that you want to reset progress
+4. All blocks are marked as incomplete
+5. The cycle counter resets to 0
+
+### Undoing a Block
+
+If you accidentally mark a block as complete, you can undo it:
+
+```javascript
+// From logic.js:777-789
+window.desfazerEtapa = function (seqId) {
+  const idx = state.planejamento.sequencia.findIndex(s => s.id === seqId);
+  if (idx > -1) {
+    state.planejamento.sequencia[idx].concluido = false;
+    syncCicloToEventos(); // Regenerate events
+    scheduleSave();
+  }
+};
+```
+
+## Cycle Configuration
+
+When setting up a cycle, you configure:
+
+| Setting | Description | Example |
+|---------|-------------|----------|
+| **Total Hours** | Total hours to complete one full cycle | 30 hours |
+| **Min Session** | Minimum unbreakable study block | 30 minutes |
+| **Max Session** | Maximum time before switching subjects | 120 minutes |
+| **Active Days** | Days you plan to study (for estimates only) | Mon-Fri |
+| **Subjects per Day** | How many different subjects to schedule daily | 3 subjects |
+
+<Note>
+In cycle mode, the "active days" setting is used **only for scheduling estimates**. The actual cycle progression is based on hours studied, not calendar days.
+</Note>
+
+## Starting a Cycle Block
+
+To begin studying a cycle block (see `logic.js:674-703`):
+
+1. Click "Start" on any pending block
+2. An event is created with the target duration
+3. The timer automatically starts
+4. You're redirected to the Cronômetro (timer) view
+5. When you mark it as studied, the block is marked `concluido: true`
+
+## Best Practices
+
+<Steps>
+  <Step title="Set realistic session times">
+    Your minimum session should be long enough for deep focus (30-60 min), and your maximum should prevent fatigue (90-120 min)
+  </Step>
+  
+  <Step title="Balance subjects per day">
+    3-4 subjects per day provides variety without cognitive overload
+  </Step>
+  
+  <Step title="Review cycle distribution regularly">
+    As your knowledge improves, update relevance weights to shift focus to weaker areas
+  </Step>
+  
+  <Step title="Complete cycles fully">
+    Resist the urge to restart mid-cycle — completing cycles builds consistency and momentum
+  </Step>
+</Steps>
+
+## See Also
+
+- [Relevance Weights](/planning/relevance-weights) - How subject priority is calculated
+- [Scheduling](/planning/scheduling) - How automatic events are generated
+- [Weekly Planner](/planning/weekly-planner) - Alternative fixed-schedule approach

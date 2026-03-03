@@ -1,0 +1,564 @@
+---
+title: IndexedDB Persistence
+description: How Estudo Organizado uses IndexedDB for robust local data persistence, including initialization, loading, saving, and schema migrations
+---
+
+## Overview
+
+Estudo Organizado uses **IndexedDB** as its primary persistence layer, providing:
+
+- **Offline-first** data storage
+- **Large storage capacity** (hundreds of MBs vs localStorage's ~5MB)
+- **Async operations** that don't block the UI
+- **Transactional integrity** for safe concurrent access
+- **Schema versioning** with automated migrations
+
+<Note>
+  IndexedDB is a low-level NoSQL database built into modern browsers. Estudo Organizado stores the entire app state as a single JSON object.
+</Note>
+
+## Database Configuration
+
+Key constants defined in `store.js:7-12`:
+
+```javascript src/js/store.js
+export const DB_NAME = 'EstudoOrganizadoDB';
+export const DB_VERSION = 1;
+export const STORE_NAME = 'app_state';
+
+export let db;
+export const DEFAULT_SCHEMA_VERSION = 7;
+```
+
+- **DB_NAME**: Database name
+- **DB_VERSION**: IndexedDB schema version (not to be confused with app schema version)
+- **STORE_NAME**: Object store name (like a "table" in SQL)
+- **DEFAULT_SCHEMA_VERSION**: Current app data schema version
+
+## Initialization: initDB()
+
+The database is initialized during app startup (`store.js:60`):
+
+```javascript src/js/store.js
+export function initDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onerror = (event) => {
+      console.error('IndexedDB Error:', event.target.error);
+      loadLegacyState(); // Fallback to localStorage
+      resolve();
+    };
+
+    request.onupgradeneeded = (event) => {
+      db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+
+    request.onsuccess = (event) => {
+      db = event.target.result;
+      loadStateFromDB().then(() => {
+        resolve();
+      });
+    };
+  });
+}
+```
+
+### Initialization Flow
+
+```
+initDB()
+  ↓
+Open IndexedDB connection
+  ↓
+[If first time] Create object store
+  ↓
+Load state from DB
+  ↓
+Run migrations if needed
+  ↓
+Ready ✓
+```
+
+<Info>
+  The `onupgradeneeded` event only fires when the database is created for the first time or when `DB_VERSION` is incremented.
+</Info>
+
+## Loading Data: loadStateFromDB()
+
+Fetches the saved state from IndexedDB (`store.js:86`):
+
+```javascript src/js/store.js
+export function loadStateFromDB() {
+  return new Promise((resolve) => {
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get('main_state');
+
+    request.onsuccess = (event) => {
+      if (request.result) {
+        const loadedState = request.result;
+
+        // BUG FIX: Prevent timer persistence across sessions
+        const isSameSession = sessionStorage.getItem('estudo_session_active');
+        if (!isSameSession) {
+          if (loadedState.cronoLivre && loadedState.cronoLivre._timerStart) {
+            loadedState.cronoLivre._timerStart = null;
+          }
+          if (loadedState.eventos) {
+            loadedState.eventos.forEach(ev => {
+              if (ev._timerStart) ev._timerStart = null;
+            });
+          }
+        }
+        sessionStorage.setItem('estudo_session_active', '1');
+
+        setState(loadedState);
+        runMigrations();
+      } else {
+        loadLegacyState(); // Try migration from localStorage
+      }
+      resolve();
+    };
+
+    request.onerror = () => {
+      loadLegacyState();
+      resolve();
+    };
+  });
+}
+```
+
+### Key Features
+
+<Accordion title="Timer Reset on Page Reload">
+The code detects new browser sessions using `sessionStorage`. When a user closes the tab and reopens later:
+
+1. `sessionStorage` is cleared (unlike `localStorage`)
+2. `isSameSession` is null
+3. All `_timerStart` timestamps are reset to prevent showing stale "running" timers
+
+This fixes a critical bug where timers appeared to be running across sessions.
+</Accordion>
+
+<Accordion title="Graceful Fallback">
+If IndexedDB fails or returns no data:
+- Falls back to `loadLegacyState()` 
+- Checks `localStorage` for old data
+- Migrates to IndexedDB
+- Ensures zero data loss during upgrades
+</Accordion>
+
+## Legacy Migration: loadLegacyState()
+
+Supports users upgrading from localStorage-based versions (`store.js:126`):
+
+```javascript src/js/store.js
+export function loadLegacyState() {
+  try {
+    const saved = localStorage.getItem('estudo_state');
+    if (saved) {
+      setState(JSON.parse(saved));
+      runMigrations();
+      scheduleSave(); // Save to IndexedDB immediately
+      localStorage.removeItem('estudo_state'); // Clean up old storage
+    }
+  } catch (e) {
+    console.error('Error loading legacy state:', e);
+  }
+}
+```
+
+<Note>
+  This ensures users who installed early versions don't lose data when upgrading to IndexedDB.
+</Note>
+
+## Saving Data: saveStateToDB()
+
+Persists the current state to IndexedDB (`store.js:195`):
+
+```javascript src/js/store.js
+export function saveStateToDB() {
+  if (saveTimeout) {
+    clearTimeout(saveTimeout);
+    saveTimeout = null;
+  }
+  if (!db) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.put(state, 'main_state');
+
+    request.onsuccess = () => {
+      document.dispatchEvent(new Event('stateSaved'));
+
+      // Cascade: Local → Cloudflare
+      if (state.config && state.config.cfSyncSyncEnabled) {
+        SyncQueue.add(() => pushToCloudflare());
+      }
+
+      resolve();
+    };
+    request.onerror = (e) => reject(e);
+  });
+}
+```
+
+### Transaction Flow
+
+1. **Clear debounce timer** (if called directly)
+2. **Open readwrite transaction**
+3. **Put state object** with key `'main_state'`
+4. **Dispatch `stateSaved` event**
+5. **Queue cloud sync** (if enabled)
+
+<Info>
+  `store.put(state, 'main_state')` is an **upsert** operation - it creates or updates the record with key `'main_state'`.
+</Info>
+
+## Before Unload Protection
+
+Prevents data loss if user closes tab during pending save (`store.js:143`):
+
+```javascript src/js/store.js
+window.addEventListener('beforeunload', (e) => {
+  if (saveTimeout !== null) {
+    e.preventDefault();
+    e.returnValue = 'Há alterações pendentes aguardando salvamento. Deseja sair assim mesmo?';
+    return e.returnValue;
+  }
+});
+```
+
+If there's a pending debounced save:
+- Browser shows confirmation dialog
+- User can cancel to let save complete
+- Prevents accidental data loss
+
+## Schema Migrations: runMigrations()
+
+Handles breaking changes in the data structure across app versions (`store.js:222`):
+
+```javascript src/js/store.js
+export function runMigrations() {
+  let changed = false;
+  
+  // Migration v1 → v2
+  if (!state.schemaVersion || state.schemaVersion < 2) {
+    if (!state.eventos) state.eventos = [];
+    if (!state.revisoes) state.revisoes = [];
+    if (!state.config) state.config = { visualizacao: 'mes', agruparEventos: true };
+    if (!state.config.frequenciaRevisao) state.config.frequenciaRevisao = [1, 7, 30, 90];
+    if (!state.habitos) state.habitos = { 
+      questoes: [], revisao: [], discursiva: [], 
+      simulado: [], leitura: [], informativo: [], 
+      sumula: [], videoaula: [] 
+    };
+
+    // Add IDs where missing
+    state.editais.forEach(ed => {
+      if (!ed.id) ed.id = 'ed_' + uid();
+      if (!ed.cor) ed.cor = '#10b981';
+      
+      // Flatten grupos into disciplinas
+      if (ed.grupos && !ed.disciplinas) {
+        ed.disciplinas = [];
+        ed.grupos.forEach(gr => {
+          gr.disciplinas.forEach(d => ed.disciplinas.push(d));
+        });
+        delete ed.grupos;
+      }
+      
+      if (!ed.disciplinas) ed.disciplinas = [];
+      ed.disciplinas.forEach(d => {
+        if (!d.id) d.id = 'disc_' + uid();
+        if (!d.icone) d.icone = '📖';
+        if (!d.assuntos) d.assuntos = [];
+        d.assuntos.forEach(a => {
+          if (!a.id) a.id = 'ass_' + uid();
+          if (!a.revisoesFetas) a.revisoesFetas = [];
+        });
+      });
+    });
+
+    state.schemaVersion = 2;
+    changed = true;
+  }
+
+  // Migration v2 → v3
+  if (state.schemaVersion === 2) {
+    if (!state.arquivo) state.arquivo = [];
+    if (state.config.frequenciaRevisao && typeof state.config.frequenciaRevisao === 'string') {
+      state.config.frequenciaRevisao = state.config.frequenciaRevisao
+        .split(',')
+        .map(Number)
+        .filter(n => !isNaN(n));
+    }
+    state.schemaVersion = 3;
+    changed = true;
+  }
+
+  // Migration v3 → v4: Add ciclo
+  if (state.schemaVersion === 3) {
+    if (!state.ciclo) {
+      state.ciclo = { ativo: false, ciclosCompletos: 0, disciplinas: [] };
+    }
+    state.schemaVersion = 4;
+    changed = true;
+  }
+
+  // Migration v4 → v5: Add planejamento
+  if (state.schemaVersion === 4) {
+    if (!state.planejamento) {
+      state.planejamento = { 
+        ativo: false, 
+        tipo: null, 
+        disciplinas: [], 
+        relevancia: {}, 
+        horarios: {}, 
+        sequencia: [] 
+      };
+    }
+    state.schemaVersion = 5;
+    changed = true;
+  }
+
+  // Normalize habitos keys
+  if (state.habitos) {
+    if (state.habitos.sumulas && !state.habitos.sumula) {
+      state.habitos.sumula = state.habitos.sumulas;
+      delete state.habitos.sumulas;
+    }
+    if (!state.habitos.videoaula) state.habitos.videoaula = [];
+    if (!state.habitos.sumula) state.habitos.sumula = [];
+  }
+
+  // Migration v6 → v7: Separation of Assuntos and Aulas
+  if (state.schemaVersion < 7) {
+    if (!state.bancaRelevance) {
+      state.bancaRelevance = { hotTopics: [], userMappings: {}, lessonMappings: {} };
+    }
+    if (!state.bancaRelevance.lessonMappings) {
+      state.bancaRelevance.lessonMappings = {};
+    }
+
+    const classRegex = /(^aula\s*\d+)|(^modulo\s*\d+)/i;
+
+    state.editais.forEach(ed => {
+      ed.disciplinas.forEach(d => {
+        if (!d.aulas) d.aulas = []; // Initialize aulas array
+
+        // Ensure reverse link exists on old items
+        d.assuntos.forEach(a => {
+          if (!a.linkedAulaIds) a.linkedAulaIds = [];
+        });
+
+        // Scan for lesson-like topics and migrate them
+        const remainingAssuntos = [];
+        d.assuntos.forEach(ass => {
+          if (classRegex.test(ass.nome.trim())) {
+            // Is a lesson! Move to disc.aulas
+            const newAula = {
+              id: 'aula_' + uid(),
+              legacyAssid: ass.id,
+              nome: ass.nome,
+              descricao: ass.descricao || '',
+              estudada: !!ass.concluido,
+              dataEstudo: ass.dataConclusao || null,
+              progress: 0,
+              linkedAssuntoIds: [],
+              _migratedFromV6: true
+            };
+            d.aulas.push(newAula);
+          } else {
+            // It is an actual Subject topic, keep it in assuntos
+            remainingAssuntos.push(ass);
+          }
+        });
+
+        d.assuntos = remainingAssuntos;
+      });
+    });
+
+    state.schemaVersion = 7;
+    changed = true;
+  }
+
+  if (changed) scheduleSave();
+}
+```
+
+### Migration Strategy
+
+<Accordion title="Sequential Versioning">
+Migrations run sequentially from the user's current schema version to the latest:
+
+```
+User on v2 → Run v2→v3 → Run v3→v4 → Run v4→v5 → ... → v7
+```
+
+This ensures all intermediate transformations are applied correctly.
+</Accordion>
+
+<Accordion title="Idempotent Checks">
+Each migration checks for missing properties before adding them:
+
+```javascript
+if (!state.arquivo) state.arquivo = [];
+```
+
+This makes migrations **idempotent** - safe to run multiple times.
+</Accordion>
+
+<Accordion title="Data Transformation Example: v6 → v7">
+Migration v7 introduced **separation between exam topics (assuntos) and course lessons (aulas)**:
+
+1. Scan all `assuntos` for lesson patterns (`"Aula 1"`, `"Módulo 2"`)
+2. Move matching items to new `aulas` array
+3. Keep actual exam topics in `assuntos`
+4. Initialize linking structures (`linkedAulaIds`, `linkedAssuntoIds`)
+
+This complex transformation runs automatically for existing users.
+</Accordion>
+
+### Adding a New Migration
+
+To add migration v7 → v8:
+
+```javascript
+if (state.schemaVersion === 7) {
+  // Your transformation logic here
+  if (!state.newFeature) state.newFeature = {};
+  
+  state.schemaVersion = 8;
+  changed = true;
+}
+```
+
+Don't forget to update `DEFAULT_SCHEMA_VERSION`:
+
+```javascript
+export const DEFAULT_SCHEMA_VERSION = 8;
+```
+
+## Data Reset: clearData()
+
+Completely wipes all user data (`store.js:346`):
+
+```javascript src/js/store.js
+export function clearData() {
+  setState({
+    schemaVersion: DEFAULT_SCHEMA_VERSION,
+    ciclo: { ativo: false, ciclosCompletos: 0, disciplinas: [] },
+    planejamento: { /* ... defaults ... */ },
+    editais: [],
+    eventos: [],
+    arquivo: [],
+    habitos: { /* ... empty ... */ },
+    revisoes: [],
+    config: { /* ... defaults ... */ },
+    cronoLivre: { _timerStart: null, tempoAcumulado: 0 },
+    bancaRelevance: { hotTopics: [], userMappings: {}, lessonMappings: {} },
+    driveFileId: null,
+    lastSync: null
+  });
+  
+  saveStateToDB().then(() => {
+    document.dispatchEvent(new CustomEvent('app:showToast', {
+      detail: { msg: 'Dados apagados com sucesso.', type: 'info' }
+    }));
+    document.dispatchEvent(new Event('app:renderCurrentView'));
+  });
+}
+```
+
+<Note>
+  This is called from the Settings page after double confirmation. It resets state to defaults and immediately saves.
+</Note>
+
+## IndexedDB Transaction Patterns
+
+### Read Transaction
+
+```javascript
+const transaction = db.transaction([STORE_NAME], 'readonly');
+const store = transaction.objectStore(STORE_NAME);
+const request = store.get('main_state');
+
+request.onsuccess = () => {
+  const data = request.result;
+  // Use data...
+};
+```
+
+### Write Transaction
+
+```javascript
+const transaction = db.transaction([STORE_NAME], 'readwrite');
+const store = transaction.objectStore(STORE_NAME);
+const request = store.put(newData, 'main_state');
+
+request.onsuccess = () => {
+  console.log('Saved!');
+};
+```
+
+### Error Handling
+
+```javascript
+request.onerror = (event) => {
+  console.error('Transaction failed:', event.target.error);
+  // Fallback logic...
+};
+```
+
+## Performance Considerations
+
+1. **Single Large Object**: Storing the entire state as one object is simpler than managing multiple stores
+2. **Debounced Writes**: 2-second delay prevents excessive I/O during rapid changes
+3. **Async Operations**: IndexedDB transactions don't block the main thread
+4. **Transaction Scope**: Minimized to reduce lock contention
+
+## Browser DevTools Inspection
+
+To inspect IndexedDB in Chrome/Edge:
+
+1. Open DevTools (F12)
+2. Go to **Application** tab
+3. Expand **IndexedDB** → **EstudoOrganizadoDB** → **app_state**
+4. Click `'main_state'` to view the full state object
+
+<Info>
+  You can edit values directly in DevTools for debugging, but they'll be overwritten on next save.
+</Info>
+
+## Common Patterns
+
+### Check if DB is Ready
+
+```javascript
+if (!db) {
+  console.warn('Database not initialized');
+  return;
+}
+```
+
+### Force Immediate Save
+
+```javascript
+import { saveStateToDB } from './store.js';
+
+await saveStateToDB(); // Bypasses debounce
+```
+
+### Listen for Save Completion
+
+```javascript
+document.addEventListener('stateSaved', () => {
+  console.log('All changes persisted!');
+});
+```

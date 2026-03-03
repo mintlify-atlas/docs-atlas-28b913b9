@@ -1,0 +1,318 @@
+---
+title: "Calendar"
+description: "Visual calendar with monthly and weekly views for scheduling and reviewing study sessions"
+---
+
+## Overview
+
+The **Calendar** provides a visual overview of all your study events across time. Switch between monthly and weekly views to plan sessions, review past activity, and maintain a consistent study schedule.
+
+<Info>
+  The Calendar is the **Plan** phase of the PDCA cycle - organize your study schedule here before executing in the Study Organizer.
+</Info>
+
+## View Modes
+
+### Monthly View
+
+The default view displays an entire month in a grid layout:
+
+- **Event chips**: Up to 3 events shown per day
+- **Color-coded status**: Green (studied), Yellow (scheduled), Red (overdue)
+- **Overflow indicator**: "+N mais" when more than 3 events exist
+- **Today highlight**: Current date clearly marked
+
+```js
+// Monthly calendar rendering (views.js:490-542)
+export function renderCalendarMonth() {
+  const year = calDate.getFullYear();
+  const month = calDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  // ... renders grid with event chips
+}
+```
+
+### Weekly View
+
+Focused 7-day view showing detailed daily schedules:
+
+- **Full event list**: All events visible per day
+- **Day headers**: Day name and date number
+- **Quick add button**: "+" button to add events for specific days
+- **Today indicator**: Highlighted background for current date
+
+```js
+// Weekly view rendering (views.js:544-590)
+export function renderCalendarWeek() {
+  const weekStart = new Date(calDate);
+  // Calculates week based on config.primeirodiaSemana
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    return d;
+  });
+}
+```
+
+## Using the Calendar
+
+<Steps>
+  <Step title="Navigate Between Months/Weeks">
+    Use the left/right chevron buttons to move backward or forward in time.
+
+    ```js
+    // Navigation logic (views.js:481-488)
+    export function calNavigate(dir) {
+      if (calViewMode === 'mes') {
+        calDate.setMonth(calDate.getMonth() + dir);
+      } else {
+        calDate.setDate(calDate.getDate() + dir * 7);
+      }
+      renderCurrentView();
+    }
+    ```
+  </Step>
+
+  <Step title="Switch View Modes">
+    Click the **Mês** or **Semana** tabs in the calendar header to toggle between monthly and weekly views.
+
+    <Note>
+      Your view preference is stored in `calViewMode` but resets when you refresh the page.
+    </Note>
+  </Step>
+
+  <Step title="Jump to Today">
+    Click the **Hoje** button to instantly return to the current date, regardless of which month/week you're viewing.
+  </Step>
+
+  <Step title="Add Events">
+    Click on any day cell to open the event creation modal pre-filled with that date.
+
+    ```js
+    // Date-specific event creation (views.js:594-596)
+    export function openAddEventModalDate(dateStr) {
+      openAddEventModal(dateStr);
+    }
+    ```
+  </Step>
+
+  <Step title="View Event Details">
+    Click on any event chip to open the event detail modal showing full information.
+  </Step>
+</Steps>
+
+## Event Status Colors
+
+Events are color-coded based on their status:
+
+| Status | Color | CSS Class | Meaning |
+|--------|-------|-----------|----------|
+| **Studied** | Green | `.estudei` | Event completed (`status === 'estudei'`) |
+| **Scheduled** | Blue/Yellow | `.agendado` | Event planned for today or future |
+| **Overdue** | Red | `.atrasado` | Event date is in the past and not completed |
+
+```js
+// Status determination (utils.js)
+export function getEventStatus(evento) {
+  if (evento.status === 'estudei') return 'estudei';
+  const today = todayStr();
+  if (evento.data < today) return 'atrasado';
+  return 'agendado';
+}
+```
+
+## First Day of Week Configuration
+
+The calendar respects your week start preference:
+
+```js
+// Week start configuration (views.js:496-499)
+const startDow = (firstDay.getDay() - (state.config.primeirodiaSemana || 1) + 7) % 7;
+const dows = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const startDow0 = state.config.primeirodiaSemana || 1;
+const dowOrder = Array.from({ length: 7 }, (_, i) => dows[(startDow0 + i) % 7]);
+```
+
+<Info>
+  Set `config.primeirodiaSemana` to `0` for Sunday or `1` for Monday (default) in Settings.
+</Info>
+
+## Calendar Grid Structure
+
+### Monthly View Layout
+
+The monthly calendar uses a CSS grid with 7 columns:
+
+```html
+<div class="cal-grid">
+  <!-- 7 day-of-week headers -->
+  <div class="cal-dow">Seg</div>
+  <div class="cal-dow">Ter</div>
+  <!-- ... -->
+  
+  <!-- Date cells with events -->
+  <div class="cal-cell today" onclick="openAddEventModalDate('2026-03-03')">
+    <div class="cal-date">3</div>
+    <div class="cal-event-chip estudei">Direito Constitucional</div>
+    <div class="cal-event-chip agendado">Direito Penal</div>
+    <div class="cal-more">+2 mais</div>
+  </div>
+</div>
+```
+
+### Weekly View Layout
+
+Weekly view uses a 7-column responsive grid:
+
+```html
+<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;">
+  <div> <!-- Monday -->
+    <div>SEG<br>3</div>
+    <div>Event 1</div>
+    <div>Event 2</div>
+    <button onclick="openAddEventModalDate('2026-03-03')">+</button>
+  </div>
+  <!-- Repeat for all 7 days -->
+</div>
+```
+
+## Event Chips
+
+Event chips show truncated event titles with tooltips:
+
+```js
+// Event chip rendering (views.js:532-535)
+const st = getEventStatus(e);
+return `<div class="cal-event-chip ${st}" 
+             style="cursor:pointer;" 
+             onclick="event.stopPropagation(); window.openEventDetail('${e.id}')" 
+             title="${esc(e.titulo)}">${esc(e.titulo)}</div>`;
+```
+
+<Warning>
+  Event chips use `event.stopPropagation()` to prevent triggering the day cell's "add event" action when clicking an existing event.
+</Warning>
+
+## Month Overflow Handling
+
+The calendar shows days from adjacent months to fill the grid:
+
+```js
+// Previous month fill (views.js:503-506)
+for (let i = 0; i < startDow; i++) {
+  const d = new Date(year, month, 1 - startDow + i);
+  cells.push({ date: d, other: true });
+}
+
+// Next month fill (views.js:510-513)
+while (cells.length % 7 !== 0) {
+  const last = cells[cells.length - 1].date;
+  cells.push({ date: new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1), other: true });
+}
+```
+
+Days from other months are styled with reduced opacity using the `.other-month` CSS class.
+
+## Quick Actions
+
+<AccordionGroup>
+  <Accordion title="Bulk Event Creation">
+    Click the "+ Iniciar Estudo" button in the topbar to create events that can be assigned to any date. The calendar view provides a **date picker** in the event creation modal.
+  </Accordion>
+
+  <Accordion title="Recurring Events (Manual)">
+    While automatic recurring events aren't built-in, you can quickly duplicate events by:
+    1. Creating an event for one day
+    2. Reopening the creation modal
+    3. Changing only the date field
+    4. Saving the new event
+  </Accordion>
+
+  <Accordion title="Weekend Highlighting">
+    Weekends can be visually distinguished by checking the day-of-week index and applying custom CSS classes based on your preferences.
+  </Accordion>
+</AccordionGroup>
+
+## Integration with Study Cycle
+
+When you have an active **Planejamento de Estudos** (Study Plan), the calendar automatically populates with auto-generated events:
+
+```js
+// Auto-generation from study plan (logic.js:705-763)
+export function syncCicloToEventos() {
+  // Removes future auto-generated events
+  // Injects new events for the next 14 days based on sequence
+  for (let diasOffset = 0; diasOffset < 14; diasOffset++) {
+    // Creates events with isAutoGenerated: true
+  }
+}
+```
+
+<Info>
+  Auto-generated events appear in the calendar and can be edited or deleted. They're regenerated when the study plan updates.
+</Info>
+
+## Performance Optimization
+
+The calendar efficiently handles large event counts:
+
+- **Lazy event filtering**: Only events matching visible dates are rendered
+- **Memoized date strings**: Date calculations cached to avoid repeated timezone conversions
+- **Virtual scrolling**: Not implemented but could be added for year views
+
+```js
+// Efficient date string generation (views.js:515-518)
+const getDateStr = d => {
+  const d2 = new Date(d.getTime() - (d.getTimezoneOffset() * 60000));
+  return d2.toISOString().split('T')[0];
+};
+```
+
+## Customization Options
+
+### Configurable Settings
+
+| Setting | Config Key | Default | Description |
+|---------|-----------|---------|-------------|
+| **Week Start Day** | `primeirodiaSemana` | 1 (Monday) | First day of the week (0=Sunday, 1=Monday) |
+| **Theme Colors** | `theme` | 'auto' | Affects event chip colors |
+
+### CSS Customization
+
+Override calendar styles in your custom CSS:
+
+```css
+/* Custom event chip styling */
+.cal-event-chip {
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+/* Today cell highlight */
+.cal-cell.today {
+  background: var(--accent-light);
+  border: 2px solid var(--accent);
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Weekly Planning">
+    Use the weekly view every Sunday/Monday to plan the upcoming week. This gives you a clear 7-day roadmap.
+  </Step>
+
+  <Step title="Monthly Review">
+    At month-end, switch to monthly view to review completion rates and identify patterns in your study habits.
+  </Step>
+
+  <Step title="Color-Code Subjects">
+    Assign distinct colors to disciplines in the Editais module. Events inherit these colors, making the calendar easier to scan visually.
+  </Step>
+
+  <Step title="Avoid Overloading Days">
+    Try to limit 3-4 events per day. Use longer sessions rather than many short ones for better focus.
+  </Step>
+</Steps>

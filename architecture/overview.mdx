@@ -1,0 +1,246 @@
+---
+title: Architecture Overview
+description: High-level overview of Estudo Organizado's architecture, built with Vanilla JavaScript and modern web technologies
+---
+
+## Introduction
+
+Estudo Organizado is a **Progressive Web App (PWA)** built entirely with **Vanilla JavaScript** - no frameworks, no build tools. This architectural decision prioritizes performance, simplicity, and maintainability.
+
+<Note>
+  The app runs completely client-side with local-first data persistence using IndexedDB, making it fast and capable of working offline.
+</Note>
+
+## Technology Stack
+
+The application is built with:
+
+- **HTML5** - Semantic markup and modern web standards
+- **CSS3** - Custom properties (CSS variables) for theming
+- **Vanilla JavaScript (ES6+)** - Modules, async/await, modern APIs
+- **IndexedDB** - Primary persistence layer
+- **Service Workers** - Offline support and caching
+- **PWA** - Installable, native-like experience
+
+## Core Architecture Principles
+
+### 1. Modular Structure
+
+The codebase is organized into focused JavaScript modules:
+
+```
+src/
+├── index.html          # Main HTML skeleton
+├── js/
+│   ├── store.js        # State management & IndexedDB
+│   ├── app.js          # App initialization & navigation
+│   ├── views.js        # View rendering orchestration
+│   ├── logic.js        # Business logic & calculations
+│   ├── relevance.js    # NLP & fuzzy matching engine
+│   ├── components.js   # UI components
+│   ├── drive-sync.js   # Google Drive integration
+│   └── cloud-sync.js   # Cloudflare sync
+└── css/
+    └── styles.css      # Global styles with CSS variables
+```
+
+<Info>
+  From `README.md`: "The project uses Vanilla JavaScript (No frameworks), prioritizing performance and simplicity."
+</Info>
+
+### 2. Single Page Application (SPA)
+
+The app operates as a client-side SPA with view-based navigation:
+
+```javascript src/js/app.js
+export function navigate(view) {
+  if (window.innerWidth <= 768) closeSidebar();
+
+  if (view === 'editais') {
+    window.activeDashboardDiscCtx = null;
+  }
+
+  currentView = view;
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  renderCurrentView();
+}
+```
+
+Views include:
+- **home** - Dashboard overview
+- **med** - Study Organizer (Study sessions)
+- **cronometro** - Pomodoro timer
+- **calendar** - Monthly/weekly calendar
+- **dashboard** - Performance metrics
+- **revisoes** - Spaced repetition system
+- **editais** - Exam syllabus management
+- **config** - Settings and sync
+
+### 3. Event-Driven Architecture
+
+The app uses custom DOM events for decoupled communication between modules:
+
+```javascript
+// Dispatch events
+document.dispatchEvent(new Event('app:invalidateCaches'));
+document.dispatchEvent(new Event('app:updateBadges'));
+document.dispatchEvent(new CustomEvent('app:showToast', { 
+  detail: { msg: 'Success!', type: 'success' } 
+}));
+
+// Listen to events
+document.addEventListener('stateSaved', handleStateSaved);
+```
+
+### 4. Local-First Data Model
+
+All data is stored locally in IndexedDB with optional cloud sync:
+
+1. **Primary**: IndexedDB (instant, offline-capable)
+2. **Optional**: Cloudflare Workers (multi-device sync)
+3. **Optional**: Google Drive (backup & restore)
+
+<Accordion title="Data Flow Diagram">
+```
+User Action
+    ↓
+State Mutation (setState)
+    ↓
+Scheduled Save (2s debounce)
+    ↓
+IndexedDB Write
+    ↓
+Cloud Sync (if enabled)
+    ↓
+UI Update (reactive events)
+```
+</Accordion>
+
+## Module Responsibilities
+
+### store.js
+Core state management and IndexedDB operations:
+- Global state object
+- State normalization via `setState()`
+- IndexedDB initialization and transactions
+- Schema migrations
+- Debounced persistence
+
+### app.js
+Application lifecycle and UI orchestration:
+- App initialization
+- Navigation system
+- Modal management
+- Toast notifications
+- Theme switching
+
+### views.js
+View rendering and user interactions:
+- Dynamic HTML generation for each view
+- Event delegation
+- Form handling
+- Complex UI components (calendar, dashboard charts)
+
+### logic.js
+Business logic isolated from presentation:
+- Performance calculations
+- Date utilities
+- Study cycle logic
+- Spaced repetition algorithms
+
+### relevance.js
+Machine learning and text analysis:
+- NLP keyword extraction
+- Fuzzy string matching
+- Topic relevance scoring
+- Exam board analysis
+
+## Progressive Web App Features
+
+Estudo Organizado is a full PWA with:
+
+### Manifest (`manifest.json`)
+```json
+{
+  "name": "Estudo Organizado",
+  "short_name": "Estudo",
+  "theme_color": "#10b981",
+  "display": "standalone"
+}
+```
+
+### Service Worker (`sw.js`)
+- **Cache-first strategy** for instant loading
+- Offline functionality
+- Background sync capabilities
+
+```html src/index.html
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('SW Registered'))
+      .catch(err => console.error('SW Error:', err));
+  });
+}
+```
+
+## Initialization Flow
+
+The app follows a predictable boot sequence:
+
+```javascript src/js/app.js
+export function init() {
+  initDB().then(async () => {
+    applyTheme();
+    initNotifications();
+
+    // Primary sync: Cloudflare (fast)
+    if (state.config && state.config.cfSyncSyncEnabled) {
+      await pullFromCloudflare();
+    }
+
+    // Secondary sync: Google Drive (slower)
+    updateDriveUI();
+    if (savedClientId) {
+      initGoogleAPIs();
+    }
+
+    navigate('home');
+
+    // Auto-update event statuses
+    state.eventos.forEach(ev => {
+      if (ev.status === 'agendado' && ev.data < todayStr()) {
+        ev.status = 'atrasado';
+      }
+    });
+    scheduleSave();
+  });
+}
+```
+
+<Note>
+  The initialization prioritizes Cloudflare sync for speed, falling back to Google Drive for comprehensive backup.
+</Note>
+
+## Performance Optimizations
+
+1. **Debounced Saves**: 2-second delay prevents excessive IndexedDB writes
+2. **Selective Rendering**: Only active views are rendered
+3. **Event Delegation**: Reduces memory footprint
+4. **Cache Invalidation**: Strategic cache busting on state changes
+5. **Session Persistence**: Prevents timer data corruption on page reload
+
+## Browser Compatibility
+
+Requires modern browser support for:
+- ES6+ JavaScript (modules, async/await, arrow functions)
+- IndexedDB
+- Service Workers
+- CSS Custom Properties
+- Fetch API
+
+<Info>
+  Chrome, Firefox, Safari, and Edge (Chromium) are fully supported.
+</Info>

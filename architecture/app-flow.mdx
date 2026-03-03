@@ -1,0 +1,424 @@
+---
+title: 'Application Flow & Navigation'
+description: 'Deep dive into app.js - initialization, navigation system, and modal management'
+---
+
+## Overview
+
+The `app.js` module is the entry point and orchestrator of Estudo Organizado. It handles application initialization, view navigation, modal management, and UI interactions like toasts and confirmations.
+
+## Key Responsibilities
+
+<CardGroup cols={2}>
+  <Card title="App Initialization" icon="rocket">
+    Database setup, sync operations, theme application, and event listeners
+  </Card>
+  <Card title="Navigation System" icon="compass">
+    View routing, sidebar management, and URL state
+  </Card>
+  <Card title="Modal Management" icon="window-restore">
+    Opening/closing modals, custom confirm dialogs, and prompts
+  </Card>
+  <Card title="UI Feedback" icon="bell">
+    Toast notifications, theme toggling, and user interactions
+  </Card>
+</CardGroup>
+
+---
+
+## Application Initialization
+
+### The `init()` Function
+
+The initialization sequence runs when the app loads. It orchestrates database setup, syncing, and UI preparation.
+
+**Location:** `app.js:140`
+
+```javascript
+export function init() {
+  initDB().then(async () => {
+    applyTheme();
+    initNotifications();
+
+    // Primary Sync: Cloudflare (Fast)
+    if (state.config && state.config.cfSyncSyncEnabled) {
+      try {
+        await pullFromCloudflare();
+      } catch (e) {
+        console.error('Falha no Boot Sync (Cloudflare)', e);
+      }
+    }
+
+    // Secondary Sync: Google Drive (Slower)
+    updateDriveUI();
+    const savedClientId = localStorage.getItem('estudo_drive_client_id');
+    if (savedClientId) {
+      initGoogleAPIs();
+    }
+
+    navigate('home');
+
+    // Auto Update states
+    state.eventos.forEach(ev => {
+      if (ev.status === 'agendado' && ev.data && ev.data < todayStr()) {
+        ev.status = 'atrasado';
+      }
+    });
+    scheduleSave();
+
+    // Check Drive Sync Every 5 Min
+    setInterval(() => {
+      if (typeof gapi !== 'undefined' && gapi.client?.getToken() !== null && state.driveFileId) 
+        syncWithDrive();
+    }, 300000);
+  });
+}
+```
+
+<Accordion title="Initialization Flow Breakdown">
+  **Step 1: Database Initialization**
+  - Opens IndexedDB connection
+  - Loads persisted state from `app_state` object store
+  - Falls back to localStorage for legacy migrations
+
+  **Step 2: UI Setup**
+  - Applies saved theme (dark/light mode)
+  - Initializes browser notification permissions
+
+  **Step 3: Cloud Sync**
+  - Attempts Cloudflare sync first (faster, primary)
+  - Then initializes Google Drive sync if configured
+
+  **Step 4: Navigation & Cleanup**
+  - Navigates to home view
+  - Updates overdue events (agendado → atrasado)
+  - Sets up periodic Drive sync every 5 minutes
+</Accordion>
+
+---
+
+## Navigation System
+
+### View Navigation
+
+The `navigate()` function handles all view transitions throughout the app.
+
+**Location:** `app.js:18`
+
+```javascript
+export function navigate(view) {
+  if (window.innerWidth <= 768) closeSidebar();
+
+  if (view === 'editais') {
+    window.activeDashboardDiscCtx = null;
+  }
+
+  currentView = view;
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  renderCurrentView();
+}
+```
+
+<Tabs>
+  <Tab title="Available Views">
+    | View | Purpose |
+    |------|----------|
+    | `home` | Dashboard with stats and metrics |
+    | `med` | Today's study events (MED = Meu Estudo Diário) |
+    | `calendar` | Calendar view of all events |
+    | `cronometro` | Active timer interface |
+    | `revisoes` | Spaced repetition review schedule |
+    | `habitos` | Habit tracking (questions, simulations, etc) |
+    | `editais` | Exam syllabus management |
+    | `ciclo` | Study cycle planning |
+    | `config` | Settings and configuration |
+  </Tab>
+  
+  <Tab title="Navigation Behavior">
+    - Auto-closes sidebar on mobile (≤768px)
+    - Resets context for certain views (e.g., editais)
+    - Updates active navigation item styling
+    - Triggers view re-render via `renderCurrentView()`
+  </Tab>
+</Tabs>
+
+---
+
+## Modal Management
+
+### Opening and Closing Modals
+
+**Location:** `app.js:35`
+
+```javascript
+export function openModal(id) {
+  document.getElementById(id).classList.add('open');
+  document.body.style.overflow = 'hidden'; // Prevent background scroll
+}
+
+export function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  document.body.style.overflow = '';
+}
+```
+
+### Custom Confirm Dialog
+
+A reusable confirmation system that replaces native `confirm()` for better UX.
+
+**Location:** `app.js:46`
+
+```javascript
+export let _confirmCallback = null;
+
+export function showConfirm(msg, onYes, opts = {}) {
+  const { title = 'Confirmar', label = 'Confirmar', danger = false } = opts;
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-msg').textContent = msg;
+  const okBtn = document.getElementById('confirm-ok-btn');
+  okBtn.textContent = label;
+  okBtn.className = `btn btn-sm ${danger ? 'btn-danger' : 'btn-primary'}`;
+  _confirmCallback = onYes;
+  openModal('modal-confirm');
+}
+```
+
+<CodeGroup>
+```javascript Example: Delete Confirmation
+showConfirm(
+  'Tem certeza que deseja excluir este evento?',
+  () => {
+    state.eventos = state.eventos.filter(e => e.id !== eventId);
+    scheduleSave();
+  },
+  { danger: true, label: 'Excluir', title: 'Excluir Evento' }
+);
+```
+
+```javascript Example: Soft Confirmation
+showConfirm(
+  'Salvar as alterações?',
+  () => {
+    scheduleSave();
+    renderCurrentView();
+  }
+);
+```
+</CodeGroup>
+
+---
+
+## Toast Notifications
+
+Non-blocking, auto-dismissing notifications for user feedback.
+
+**Location:** `app.js:77`
+
+```javascript
+export function showToast(msg, type = '') {
+  const container = document.getElementById('toast-container');
+  const last = container.lastElementChild;
+  
+  // Prevent duplicate messages
+  if (last && last.dataset.msg === msg) {
+    last.classList.remove('show');
+    void last.offsetWidth; // Force reflow
+    last.classList.add('show');
+    return;
+  }
+  
+  // Limit to 3 toasts max
+  while (container.children.length >= 3) {
+    const oldest = container.firstElementChild;
+    oldest.classList.remove('show');
+    setTimeout(() => oldest.remove(), 300);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.setAttribute('role', 'status');
+  toast.setAttribute('aria-live', 'polite');
+  toast.dataset.msg = msg;
+  
+  const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+  const iconSpan = document.createElement('span');
+  iconSpan.textContent = icons[type] || '💬';
+  const msgSpan = document.createElement('span');
+  msgSpan.textContent = msg;
+  
+  toast.appendChild(iconSpan);
+  toast.appendChild(document.createTextNode(' '));
+  toast.appendChild(msgSpan);
+  container.appendChild(toast);
+  
+  requestAnimationFrame(() => { toast.classList.add('show'); });
+  
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 3500);
+}
+```
+
+<CardGroup cols={3}>
+  <Card title="Success Toast" icon="check-circle" color="#10b981">
+    ```js
+    showToast('Evento criado!', 'success');
+    ```
+  </Card>
+  <Card title="Error Toast" icon="exclamation-triangle" color="#ef4444">
+    ```js
+    showToast('Erro ao salvar', 'error');
+    ```
+  </Card>
+  <Card title="Info Toast" icon="info-circle" color="#3b82f6">
+    ```js
+    showToast('Sincronizando...', 'info');
+    ```
+  </Card>
+</CardGroup>
+
+---
+
+## Theme Management
+
+**Location:** `app.js:127`
+
+```javascript
+export function applyTheme(toggle = false) {
+  if (toggle) {
+    state.config.darkMode = !state.config.darkMode;
+    state.config.tema = state.config.darkMode ? 'dark' : 'light';
+    scheduleSave();
+  }
+  const theme = state.config.tema || (state.config.darkMode ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', theme);
+
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) btn.textContent = state.config.darkMode ? '☀️ Modo claro' : '🌙 Modo escuro';
+}
+```
+
+<Note>
+The theme is applied to the root `<html>` element via the `data-theme` attribute, which CSS variables respond to for dynamic styling.
+</Note>
+
+---
+
+## Cycle Wizard (Study Cycle Planning)
+
+The cycle wizard is a multi-step modal that helps users configure study cycles.
+
+**Location:** `app.js:252-356`
+
+<Steps>
+  <Step title="Step 1: Define Disciplines">
+    Users add disciplines with names, colors, and time allocations (in minutes per block).
+    
+    ```javascript
+    _wizardDisc.push({
+      id: 'cdisc_' + Date.now() + i,
+      nome: val,
+      cor: colors[i].value || '#3b82f6',
+      planejadoMin: minVal,
+      estudadoMin: 0,
+      concluido: false
+    });
+    ```
+  </Step>
+  
+  <Step title="Step 2: Arrange Order">
+    Drag-and-drop interface to reorder disciplines for the study cycle sequence.
+    
+    Uses HTML5 Drag & Drop API with `wizardDragStart`, `wizardDragOver`, `wizardDrop` handlers.
+  </Step>
+  
+  <Step title="Save Cycle">
+    Saves the cycle configuration to `state.ciclo` and triggers a full re-render.
+    
+    ```javascript
+    state.ciclo.ativo = true;
+    state.ciclo.disciplinas = reordered;
+    scheduleSave();
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Interactive Prompts
+
+### Exam Date Prompt
+
+**Location:** `app.js:183`
+
+```javascript
+export function promptDataProva() {
+  const atual = state.config.dataProva || '';
+  
+  document.getElementById('modal-prompt-title').textContent = 'Data da Prova';
+  document.getElementById('modal-prompt-body').innerHTML = `
+    <div style="margin-bottom:12px;color:var(--text-secondary);font-size:14px;">
+      Informe a data final para os contadores regressivos.
+    </div>
+    <input type="date" id="prompt-input-data" class="form-control" value="${atual}">
+  `;
+
+  const saveBtn = document.getElementById('modal-prompt-save');
+  saveBtn.onclick = () => {
+    const nova = document.getElementById('prompt-input-data').value;
+    if (nova.trim() === '') {
+      state.config.dataProva = null;
+    } else {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(nova)) {
+        state.config.dataProva = nova;
+      } else {
+        showToast('Data inválida.', 'error');
+        return;
+      }
+    }
+    scheduleSave();
+    if (currentView === 'home') renderCurrentView();
+    closeModal('modal-prompt');
+  };
+
+  openModal('modal-prompt');
+}
+```
+
+### Weekly Goals Prompt
+
+**Location:** `app.js:213`
+
+Allows users to set weekly study goals for hours and questions.
+
+```javascript
+export function promptMetas() {
+  const horas = state.config.metas?.horasSemana || 20;
+  const quest = state.config.metas?.questoesSemana || 150;
+  
+  // Renders input fields for both metrics
+  // Validates and saves to state.config.metas
+}
+```
+
+---
+
+## Summary
+
+<CardGroup cols={2}>
+  <Card title="Initialization" icon="power-off">
+    `init()` orchestrates DB, sync, theme, and navigation setup on app load
+  </Card>
+  <Card title="Navigation" icon="compass">
+    `navigate(view)` handles view switching and UI state updates
+  </Card>
+  <Card title="Modals" icon="window-restore">
+    `openModal()`, `closeModal()`, `showConfirm()` manage dialogs
+  </Card>
+  <Card title="Feedback" icon="comment">
+    `showToast()` provides non-intrusive user notifications
+  </Card>
+</CardGroup>

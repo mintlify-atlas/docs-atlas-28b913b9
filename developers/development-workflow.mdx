@@ -1,0 +1,448 @@
+---
+title: 'Development Workflow'
+description: 'Best practices for developing, testing, and debugging Estudo Organizado'
+---
+
+## Development Cycle
+
+Estudo Organizado follows the **PDCA Cycle** (Plan-Do-Check-Act) not just as a feature, but as a development philosophy:
+
+1. **Plan** - Identify what needs to be changed
+2. **Do** - Make the changes in your code editor
+3. **Check** - Test in the browser
+4. **Act** - Debug and refine
+
+## Making Changes
+
+### Quick Iteration Process
+
+<Steps>
+  <Step title="Edit Source Files">
+    Open your preferred code editor and modify files in the `src/` directory:
+
+    ```bash
+    # Example: Edit a JavaScript module
+    code src/js/logic.js
+
+    # Example: Update styles
+    code src/css/styles.css
+
+    # Example: Modify HTML structure
+    code src/index.html
+    ```
+  </Step>
+
+  <Step title="Refresh Browser">
+    Since there's no build process, simply **refresh your browser** (F5 or Ctrl/Cmd+R) to see changes immediately.
+
+    <Note>
+    For Service Worker changes in `sw.js`, you may need to:
+    1. Open DevTools > Application > Service Workers
+    2. Click "Unregister" and refresh
+    3. Or use "Update on reload" during development
+    </Note>
+  </Step>
+
+  <Step title="Verify Changes">
+    Check the browser console (F12) for:
+    - JavaScript errors
+    - Network requests
+    - Console logs from your code
+  </Step>
+</Steps>
+
+### Hot Reload Alternative
+
+While the app doesn't have built-in hot reload, you can use browser extensions:
+
+- **LiveReload** for Chrome/Firefox
+- **Live Server** VS Code extension
+
+## Testing Strategies
+
+### Browser DevTools Testing
+
+<Accordion title="Console Debugging">
+  Use the Console tab to:
+  
+  ```javascript
+  // Add debug logs in your code
+  console.log('Current state:', state);
+  console.warn('Unusual behavior detected');
+  console.error('Failed to load data');
+  
+  // Inspect objects
+  console.table(arrayOfObjects);
+  console.dir(domElement);
+  ```
+</Accordion>
+
+<Accordion title="Network Tab">
+  Monitor network activity:
+  
+  - **XHR/Fetch requests** to external APIs (Google Drive, Cloudflare)
+  - **Static assets** loading (CSS, JS, images)
+  - **Service Worker** cache hits vs. network requests
+  
+  <Note>
+  Look for failed requests (red status codes) or slow-loading resources.
+  </Note>
+</Accordion>
+
+<Accordion title="Application Tab">
+  Inspect PWA features:
+  
+  - **Manifest** - Verify PWA configuration
+  - **Service Workers** - Check registration and cache
+  - **Storage > IndexedDB** - Inspect local database
+  - **Storage > Local Storage** - View settings and tokens
+  - **Cache Storage** - See cached assets
+</Accordion>
+
+<Accordion title="Sources Tab">
+  Debug JavaScript:
+  
+  1. Set **breakpoints** by clicking line numbers
+  2. Use **debugger** statement in code
+  3. Step through code execution
+  4. Inspect variable values in scope
+  
+  ```javascript
+  function calculateStudyMetrics(events) {
+    debugger; // Execution will pause here
+    const totalHours = events.reduce(...);
+    return totalHours;
+  }
+  ```
+</Accordion>
+
+### Testing IndexedDB Operations
+
+To test data persistence:
+
+<CodeGroup>
+  ```javascript Console Commands
+  // Access IndexedDB directly in console
+  // (Assuming 'store' module is available globally)
+  
+  // Create test event
+  await createEvent({
+    title: "Test Study Session",
+    date: "2026-03-03",
+    duration: 60
+  });
+  
+  // Retrieve all events
+  const events = await getAllEvents();
+  console.table(events);
+  
+  // Clear database (careful!)
+  await clearAllData();
+  ```
+
+  ```javascript Manual Inspection
+  // DevTools > Application > IndexedDB > estudo-organizado
+  // Expand to see:
+  // - events
+  // - editais
+  // - disciplinas
+  // - subjects
+  // - habits
+  ```
+</CodeGroup>
+
+### Testing Responsive Design
+
+<Steps>
+  <Step title="Open Device Toolbar">
+    Press `Ctrl+Shift+M` (Windows/Linux) or `Cmd+Shift+M` (Mac) to toggle device emulation.
+  </Step>
+
+  <Step title="Test Different Viewports">
+    Select from preset devices:
+    - **Mobile**: iPhone SE, Samsung Galaxy
+    - **Tablet**: iPad, iPad Pro
+    - **Desktop**: Responsive mode with custom dimensions
+  </Step>
+
+  <Step title="Verify Mobile Features">
+    Test mobile-specific UI:
+    - Hamburger menu (sidebar toggle)
+    - Touch interactions
+    - Responsive layouts
+    - Mobile modals
+  </Step>
+</Steps>
+
+## Debugging Common Issues
+
+### Service Worker Not Updating
+
+**Problem**: Changes to `sw.js` not reflecting in browser.
+
+**Solution**:
+
+<Steps>
+  <Step title="Force Update">
+    DevTools > Application > Service Workers > Check "Update on reload"
+  </Step>
+
+  <Step title="Unregister & Refresh">
+    Click "Unregister" next to the service worker, then hard refresh (Ctrl+Shift+R)
+  </Step>
+
+  <Step title="Clear Cache">
+    Application > Storage > "Clear site data"
+  </Step>
+</Steps>
+
+### IndexedDB Data Corruption
+
+**Problem**: Application shows errors related to database operations.
+
+**Solution**:
+
+```javascript
+// In console, clear and reset database
+indexedDB.deleteDatabase('estudo-organizado');
+// Then refresh the page
+```
+
+### Modal Not Opening
+
+**Problem**: Clicking buttons doesn't open modals.
+
+**Solution**:
+
+1. Check **Console** for JavaScript errors
+2. Verify **event delegation** is working (check `data-action` attributes)
+3. Inspect **CSS** - modal might be hidden by `display: none` or `z-index` issues
+
+```javascript
+// Debug modal opening in console
+const modal = document.getElementById('modal-event');
+console.log(modal.style.display); // Should change to 'flex' when open
+```
+
+### Styles Not Applying
+
+**Problem**: CSS changes not visible.
+
+**Solution**:
+
+1. **Hard refresh** (Ctrl+Shift+R) to bypass cache
+2. Check **CSS specificity** - more specific selectors override general ones
+3. Verify **CSS custom properties** are defined in `:root`
+4. Use **Computed** tab in DevTools to see final applied styles
+
+## Testing Features End-to-End
+
+### Study Session Flow
+
+<Steps>
+  <Step title="Start Session">
+    1. Click "Study Organizer" in sidebar
+    2. Click "Iniciar Estudo" button
+    3. Fill in event details (subject, duration, type)
+    4. Start timer
+  </Step>
+
+  <Step title="Monitor State">
+    Open DevTools Console and watch:
+    ```javascript
+    // Timer updates in cronometro.js
+    // State changes in store.js
+    // UI updates in views.js
+    ```
+  </Step>
+
+  <Step title="Complete Session">
+    1. Stop timer
+    2. Verify data saved to IndexedDB
+    3. Check Dashboard for updated metrics
+    4. Confirm calendar shows the event
+  </Step>
+</Steps>
+
+### Cloudflare Sync Testing
+
+<Note>
+Requires Cloudflare Worker setup. See `docs/CLOUDFLARE-SETUP.md` in the source.
+</Note>
+
+<Steps>
+  <Step title="Configure Sync">
+    1. Go to Settings (Configurações)
+    2. Enter Worker URL and Token
+    3. Enable sync
+  </Step>
+
+  <Step title="Monitor Network">
+    DevTools > Network tab:
+    - Watch for POST requests to Worker URL
+    - Check request/response payloads
+    - Verify sync status updates
+  </Step>
+
+  <Step title="Test Multi-Device">
+    1. Make changes on Device A
+    2. Wait for sync (or trigger manually)
+    3. Open app on Device B
+    4. Verify data appears
+  </Step>
+</Steps>
+
+## Performance Testing
+
+### Lighthouse Audit
+
+<Steps>
+  <Step title="Run Audit">
+    DevTools > Lighthouse > "Analyze page load"
+  </Step>
+
+  <Step title="Review Metrics">
+    Check PWA score:
+    - **Performance**: Should be 90+
+    - **Accessibility**: Should be 90+
+    - **Best Practices**: Should be 90+
+    - **SEO**: Should be 80+
+    - **PWA**: Should pass all checks
+  </Step>
+
+  <Step title="Optimize">
+    Address flagged issues:
+    - Compress images in `screenshots/`
+    - Minimize unused CSS/JS
+    - Optimize Service Worker caching
+  </Step>
+</Steps>
+
+### Performance Profiling
+
+```javascript
+// Add performance marks in code
+performance.mark('calculation-start');
+// ... expensive operation ...
+performance.mark('calculation-end');
+performance.measure('calculation', 'calculation-start', 'calculation-end');
+
+// View results
+const measures = performance.getEntriesByType('measure');
+console.table(measures);
+```
+
+## Git Workflow
+
+### Recommended Branching
+
+```bash
+# Create feature branch
+git checkout -b feature/new-dashboard-widget
+
+# Make changes and commit
+git add src/js/components.js
+git commit -m "Add new dashboard widget for habit tracking"
+
+# Push to remote
+git push origin feature/new-dashboard-widget
+```
+
+### Commit Message Conventions
+
+Follow the project's style:
+
+```
+feat: Add spaced repetition algorithm
+fix: Resolve timer pause bug in Pomodoro mode
+style: Update dark mode colors for Matrix theme
+docs: Update Cloudflare setup guide
+refactor: Simplify event filtering logic
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Console Logs Sparingly" icon="terminal">
+    Remove debug logs before committing. Use a consistent prefix for easy cleanup:
+    
+    ```javascript
+    console.log('[DEBUG] User state:', state);
+    // Search for '[DEBUG]' to remove all debug logs
+    ```
+  </Card>
+
+  <Card title="Test Offline Mode" icon="wifi">
+    Always test PWA offline functionality:
+    1. DevTools > Network > "Offline"
+    2. Refresh page
+    3. Verify app still loads
+  </Card>
+
+  <Card title="Respect Vanilla JS" icon="code">
+    Don't introduce frameworks or heavy dependencies. Keep the app lightweight and framework-free.
+  </Card>
+
+  <Card title="Check Browser Compatibility" icon="browser">
+    Test on multiple browsers:
+    - Chrome/Edge (Chromium)
+    - Firefox
+    - Safari (if available)
+  </Card>
+</CardGroup>
+
+## Code Style Guidelines
+
+### JavaScript
+
+- Use **ES6+** features (arrow functions, destructuring, async/await)
+- Prefer **const** over **let**, avoid **var**
+- Use **template literals** for strings with variables
+- Follow **camelCase** for variables and functions
+
+```javascript
+// Good
+const calculateTotalHours = (events) => {
+  return events.reduce((sum, event) => sum + event.duration, 0);
+};
+
+// Avoid
+var calculate_total_hours = function(events) {
+  var sum = 0;
+  for (var i = 0; i < events.length; i++) {
+    sum = sum + events[i].duration;
+  }
+  return sum;
+};
+```
+
+### CSS
+
+- Use **CSS custom properties** for theming
+- Follow **BEM-like** naming for classes
+- Keep selectors **low specificity**
+
+```css
+/* Good */
+.card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+}
+
+.card--highlighted {
+  border: 2px solid var(--accent);
+}
+
+/* Avoid */
+div.container > div.card > div.header > h2.title {
+  color: #10b981; /* Use CSS variables instead */
+}
+```
+
+## Next Steps
+
+You're now ready to contribute! Check out:
+
+- [Project Structure](/developers/project-structure) - Deep dive into the codebase
+- [Environment Setup](/developers/setup) - Get your environment ready
+- **GitHub Issues** - Find tasks to work on

@@ -1,0 +1,447 @@
+---
+title: State Management
+description: How Estudo Organizado manages application state using a centralized store pattern with reactive updates
+---
+
+## Overview
+
+Estudo Organizado uses a **centralized global state** pattern similar to Redux, but implemented in pure Vanilla JavaScript. All application data lives in a single `state` object managed by `store.js`.
+
+<Note>
+  The state object is the **single source of truth** for all application data.
+</Note>
+
+## The State Object
+
+The global state is defined in `src/js/store.js:36`:
+
+```javascript src/js/store.js
+export let state = {
+  schemaVersion: DEFAULT_SCHEMA_VERSION,
+  ciclo: { 
+    ativo: false, 
+    ciclosCompletos: 0, 
+    disciplinas: [] 
+  },
+  planejamento: { 
+    ativo: false, 
+    tipo: null, 
+    disciplinas: [], 
+    relevancia: {}, 
+    horarios: {}, 
+    sequencia: [], 
+    ciclosCompletos: 0, 
+    dataInicioCicloAtual: null 
+  },
+  editais: [],
+  eventos: [],
+  arquivo: [], // concluded events older than 90 days
+  habitos: { 
+    questoes: [], 
+    revisao: [], 
+    discursiva: [], 
+    simulado: [], 
+    leitura: [], 
+    informativo: [], 
+    sumula: [], 
+    videoaula: [] 
+  },
+  revisoes: [],
+  config: {
+    visualizacao: 'mes',
+    primeirodiaSemana: 1,
+    mostrarNumeroSemana: false,
+    agruparEventos: true,
+    frequenciaRevisao: [1, 7, 30, 90],
+    materiasPorDia: 3
+  },
+  cronoLivre: { 
+    _timerStart: null, 
+    tempoAcumulado: 0 
+  },
+  bancaRelevance: { 
+    hotTopics: [], 
+    userMappings: {}, 
+    lessonMappings: {} 
+  },
+  driveFileId: null,
+  lastSync: null
+};
+```
+
+### State Schema Breakdown
+
+<Accordion title="ciclo - Study Cycle Configuration">
+Manages the active study cycle with rotating subjects:
+- `ativo`: Boolean indicating if cycle is enabled
+- `ciclosCompletos`: Counter for completed cycles
+- `disciplinas`: Array of subjects with time allocations
+</Accordion>
+
+<Accordion title="planejamento - Study Planning System">
+Advanced study planning with automated scheduling:
+- `ativo`: Whether planning is active
+- `tipo`: Planning type (relevance-based, time-based, etc.)
+- `disciplinas`: Selected subjects for planning
+- `relevancia`: Subject relevance scores
+- `horarios`: Time slot allocations
+- `sequencia`: Study sequence order
+</Accordion>
+
+<Accordion title="editais - Exam Syllabi">
+Array of exam syllabi (editais), each containing:
+- `id`: Unique identifier
+- `nome`: Exam name
+- `cor`: Color code for UI
+- `disciplinas`: Array of subjects with topics and lessons
+</Accordion>
+
+<Accordion title="eventos - Study Events">
+All study sessions (scheduled, in-progress, completed, or late):
+- `id`: Event ID
+- `titulo`: Event title
+- `data`: Scheduled date
+- `status`: 'agendado', 'estudando', 'concluido', 'atrasado'
+- `tempoEstudado`: Minutes studied
+- `_timerStart`: Timestamp when timer started (transient)
+</Accordion>
+
+<Accordion title="arquivo - Archived Events">
+Events older than 90 days that have been archived for performance.
+</Accordion>
+
+<Accordion title="habitos - Study Habits Tracking">
+Daily habit logs categorized by type:
+- `questoes`: Practice questions
+- `revisao`: Review sessions
+- `discursiva`: Essay practice
+- `simulado`: Mock exams
+- `leitura`: Reading
+- `informativo`: News/updates
+- `sumula`: Legal summaries
+- `videoaula`: Video lessons
+</Accordion>
+
+<Accordion title="revisoes - Spaced Repetition">
+Review items scheduled according to spaced repetition intervals.
+</Accordion>
+
+<Accordion title="config - User Configuration">
+- `visualizacao`: Calendar view mode ('mes', 'semana')
+- `primeirodiaSemana`: First day of week (0=Sunday, 1=Monday)
+- `frequenciaRevisao`: Spaced repetition intervals in days [1, 7, 30, 90]
+- `tema`: Theme ('light', 'dark', 'matrix', etc.)
+- `dataProva`: Exam date for countdown
+- `metas`: Weekly goals (hours, questions)
+</Accordion>
+
+<Accordion title="bancaRelevance - Exam Board Intelligence">
+Machine learning data for exam board analysis:
+- `hotTopics`: Most frequent topics from past exams
+- `userMappings`: User corrections to auto-matching
+- `lessonMappings`: Lesson-to-topic relationships
+</Accordion>
+
+## State Mutations with setState()
+
+All state changes go through the `setState()` function (`store.js:14`):
+
+```javascript src/js/store.js
+export function setState(newState) {
+  const normalized = {
+    schemaVersion: newState.schemaVersion || DEFAULT_SCHEMA_VERSION,
+    ciclo: newState.ciclo || { ativo: false, ciclosCompletos: 0, disciplinas: [] },
+    planejamento: newState.planejamento || { 
+      ativo: false, 
+      tipo: null, 
+      disciplinas: [], 
+      relevancia: {}, 
+      horarios: {}, 
+      sequencia: [], 
+      ciclosCompletos: 0, 
+      dataInicioCicloAtual: null 
+    },
+    editais: newState.editais || [],
+    eventos: newState.eventos || [],
+    arquivo: newState.arquivo || [],
+    habitos: Object.assign(
+      { 
+        questoes: [], 
+        revisao: [], 
+        discursiva: [], 
+        simulado: [], 
+        leitura: [], 
+        informativo: [], 
+        sumula: [], 
+        videoaula: [] 
+      }, 
+      newState.habitos || {}
+    ),
+    revisoes: newState.revisoes || [],
+    config: Object.assign(
+      { 
+        visualizacao: 'mes', 
+        primeirodiaSemana: 1, 
+        mostrarNumeroSemana: false, 
+        agruparEventos: true, 
+        frequenciaRevisao: [1, 7, 30, 90], 
+        materiasPorDia: 3 
+      }, 
+      newState.config || {}
+    ),
+    cronoLivre: newState.cronoLivre || { _timerStart: null, tempoAcumulado: 0 },
+    bancaRelevance: newState.bancaRelevance || { 
+      hotTopics: [], 
+      userMappings: {}, 
+      lessonMappings: {} 
+    },
+    driveFileId: newState.driveFileId || null,
+    lastSync: newState.lastSync || null
+  };
+
+  // Replace the state object properties instead of the reference
+  Object.keys(state).forEach(k => delete state[k]);
+  Object.assign(state, normalized);
+}
+```
+
+<Info>
+  `setState()` ensures all required properties exist with proper defaults, preventing undefined errors.
+</Info>
+
+### Why Mutate Instead of Replace?
+
+Notice the critical pattern at the end:
+
+```javascript
+Object.keys(state).forEach(k => delete state[k]);
+Object.assign(state, normalized);
+```
+
+This **mutates the existing object reference** rather than creating a new one. This is crucial because:
+
+1. Other modules import `state` as a reference
+2. Replacing the reference would break those imports
+3. Mutating preserves reactivity across modules
+
+## Scheduled Persistence with scheduleSave()
+
+To prevent excessive writes to IndexedDB, state changes are **debounced** using `scheduleSave()` (`store.js:182`):
+
+```javascript src/js/store.js
+export function scheduleSave() {
+  document.dispatchEvent(new Event('app:invalidateCaches'));
+  if (saveTimeout) clearTimeout(saveTimeout);
+
+  // Update badges instantly without waiting for the save
+  document.dispatchEvent(new Event('app:updateBadges'));
+
+  saveTimeout = setTimeout(() => {
+    saveStateToDB();
+  }, 2000); // 2 second debounce
+}
+```
+
+### The Save Flow
+
+```
+User Action → State Mutation → scheduleSave() → Wait 2s → saveStateToDB()
+```
+
+1. **User modifies data** (e.g., completes a study session)
+2. **Module calls `scheduleSave()`**
+3. **Timer starts** (or resets if already running)
+4. **After 2 seconds of inactivity**, data is persisted
+5. **UI updates immediately** via events (optimistic updates)
+
+<Note>
+  The 2-second debounce prevents database thrashing during rapid user interactions like typing or dragging.
+</Note>
+
+## Immediate Persistence with saveStateToDB()
+
+For critical operations (app close, manual sync), use `saveStateToDB()` directly (`store.js:195`):
+
+```javascript src/js/store.js
+export function saveStateToDB() {
+  if (saveTimeout) {
+    clearTimeout(saveTimeout);
+    saveTimeout = null;
+  }
+  if (!db) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.put(state, 'main_state');
+
+    request.onsuccess = () => {
+      document.dispatchEvent(new Event('stateSaved'));
+
+      // Cascade: Local → Cloudflare
+      if (state.config && state.config.cfSyncSyncEnabled) {
+        SyncQueue.add(() => pushToCloudflare());
+      }
+
+      resolve();
+    };
+    request.onerror = (e) => reject(e);
+  });
+}
+```
+
+### Sync Cascade
+
+After successful local save:
+1. Dispatch `stateSaved` event
+2. If Cloudflare sync enabled, queue cloud push
+3. Cloud push happens asynchronously via `SyncQueue`
+
+## The SyncQueue Pattern
+
+To prevent concurrent sync operations, a queue ensures sequential execution (`store.js:151`):
+
+```javascript src/js/store.js
+export const SyncQueue = {
+  isProcessing: false,
+  tasks: [],
+  add(taskFn) {
+    return new Promise((resolve, reject) => {
+      this.tasks.push(async () => {
+        try {
+          await taskFn();
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      });
+      this.process();
+    });
+  },
+  async process() {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+    while (this.tasks.length > 0) {
+      const fn = this.tasks.shift();
+      try {
+        await fn();
+      } catch (err) {
+        console.error('SyncQueue Error:', err);
+      }
+    }
+    this.isProcessing = false;
+  }
+};
+```
+
+This ensures:
+- No race conditions between sync operations
+- Ordered execution of cloud pushes
+- Error isolation (one failure doesn't block queue)
+
+## Reactive Updates with Events
+
+Modules communicate state changes via custom events:
+
+```javascript
+// Trigger cache invalidation
+document.dispatchEvent(new Event('app:invalidateCaches'));
+
+// Update UI badges
+document.dispatchEvent(new Event('app:updateBadges'));
+
+// Show toast notification
+document.dispatchEvent(new CustomEvent('app:showToast', {
+  detail: { msg: 'Saved!', type: 'success' }
+}));
+
+// Trigger view re-render
+document.dispatchEvent(new Event('app:renderCurrentView'));
+```
+
+Modules listen for these events:
+
+```javascript
+document.addEventListener('stateSaved', () => {
+  console.log('State persisted to IndexedDB');
+});
+
+document.addEventListener('app:updateBadges', () => {
+  updateNotificationBadges();
+});
+```
+
+## Example: Adding a Study Event
+
+Here's how a typical state mutation flows:
+
+```javascript
+import { state, scheduleSave } from './store.js';
+import { uid, todayStr } from './utils.js';
+
+function addStudyEvent(titulo, disciplina, minutos) {
+  // 1. Create new event object
+  const newEvent = {
+    id: 'evt_' + uid(),
+    titulo,
+    disciplina,
+    data: todayStr(),
+    status: 'concluido',
+    tempoEstudado: minutos,
+    dataConclusao: new Date().toISOString()
+  };
+
+  // 2. Mutate state
+  state.eventos.push(newEvent);
+
+  // 3. Schedule persistence
+  scheduleSave();
+
+  // 4. Trigger UI updates
+  document.dispatchEvent(new Event('app:renderCurrentView'));
+}
+```
+
+<Info>
+  This pattern keeps components decoupled - the function doesn't need to know about the UI, only state and events.
+</Info>
+
+## State Clearing
+
+To reset the app (used by "Clear All Data" in settings):
+
+```javascript src/js/store.js
+export function clearData() {
+  setState({
+    schemaVersion: DEFAULT_SCHEMA_VERSION,
+    ciclo: { ativo: false, ciclosCompletos: 0, disciplinas: [] },
+    planejamento: { /* ... defaults ... */ },
+    editais: [],
+    eventos: [],
+    arquivo: [],
+    habitos: { /* ... empty arrays ... */ },
+    revisoes: [],
+    config: { /* ... defaults ... */ },
+    cronoLivre: { _timerStart: null, tempoAcumulado: 0 },
+    bancaRelevance: { hotTopics: [], userMappings: {}, lessonMappings: {} },
+    driveFileId: null,
+    lastSync: null
+  });
+  
+  saveStateToDB().then(() => {
+    document.dispatchEvent(new CustomEvent('app:showToast', {
+      detail: { msg: 'Dados apagados com sucesso.', type: 'info' }
+    }));
+    document.dispatchEvent(new Event('app:renderCurrentView'));
+  });
+}
+```
+
+## Best Practices
+
+1. **Always use `scheduleSave()`** after mutations (unless immediate save required)
+2. **Import state as reference**, never reassign: `import { state } from './store.js'`
+3. **Dispatch events** for cross-module communication
+4. **Use `setState()`** for bulk updates or initialization
+5. **Validate data** before mutating state
+6. **Keep business logic separate** from state mutations

@@ -1,0 +1,201 @@
+---
+title: Contribution Guidelines
+description: Learn how to contribute to Estudo Organizado, including PR process, issue reporting, and development workflow.
+---
+
+## Welcome Contributors!
+
+Thank you for your interest in contributing to **Estudo Organizado**! This project is designed to help students preparing for public exams (concursos públicos) organize their study sessions using the PDCA cycle methodology.
+
+<Note>
+Estudo Organizado is built with **Vanilla JavaScript** (no frameworks), prioritizing performance and simplicity. The project is a Progressive Web App (PWA) with offline capabilities.
+</Note>
+
+## How to Contribute
+
+### Getting Started
+
+1. **Fork the repository** on GitHub
+2. **Clone your fork** locally:
+   ```bash
+   git clone https://github.com/your-username/estudo-organizado.git
+   cd estudo-organizado
+   ```
+3. **Create a new branch** for your feature or fix:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+4. **Start the development server** (see options in README.md):
+   ```bash
+   python -m http.server 8000
+   # or
+   npx http-server -p 8000
+   ```
+
+### Development Workflow
+
+<Accordion title="Understanding the Wave System">
+The project uses a "Wave" versioning system for major features:
+- **Wave 30**: PWA Native implementation with Service Worker
+- **Wave 34**: Full-screen Predictive Analysis tab
+- **Waves 35-36**: Smart Analysis Management with history
+- **Wave 39**: Separation between Assuntos (exam topics) and Aulas (course materials)
+
+When proposing major features, consider which "Wave" it might belong to.
+</Accordion>
+
+### Making Changes
+
+1. **Make your changes** following our [code style guide](/contributing/code-style)
+2. **Test thoroughly** using our [testing approach](/contributing/testing)
+3. **Commit your changes** with clear, descriptive messages:
+   ```bash
+   git add .
+   git commit -m "Add feature: description of what was added"
+   ```
+4. **Push to your fork**:
+   ```bash
+   git push origin feature/your-feature-name
+   ```
+
+## Pull Request Process
+
+### Before Submitting
+
+- Ensure your code follows the [JavaScript conventions](/contributing/code-style) used in the project
+- Test your changes across different browsers (Chrome, Firefox, Safari, Edge)
+- Test PWA functionality if you modified Service Worker or manifest
+- Verify IndexedDB operations work correctly
+- Check that offline mode still functions properly
+
+### Submitting Your PR
+
+1. **Create a Pull Request** from your fork to the main repository
+2. **Write a clear PR description** that includes:
+   - What changes were made
+   - Why these changes were necessary
+   - Which features/modules are affected
+   - Testing performed (browsers, devices, scenarios)
+
+<Warning>
+Ensure your PR doesn't break existing functionality, especially:
+- State management (IndexedDB persistence)
+- PWA offline capabilities
+- Timer functionality (Pomodoro, free timer)
+- Sync features (Cloudflare, Google Drive)
+</Warning>
+
+3. **Reference related issues** using `#issue-number`
+4. **Wait for review** - maintainers will review and provide feedback
+
+### PR Review Criteria
+
+Your PR will be evaluated on:
+- **Code quality**: Clean, readable, following project conventions
+- **Functionality**: Works as intended without breaking existing features
+- **Performance**: Doesn't negatively impact app performance
+- **Documentation**: Code comments where necessary
+- **Testing**: Evidence of thorough testing
+
+## Reporting Issues
+
+### Bug Reports
+
+When reporting bugs, please include:
+
+1. **Clear title** describing the issue
+2. **Steps to reproduce**:
+   - What you did
+   - What you expected to happen
+   - What actually happened
+3. **Environment details**:
+   - Browser and version
+   - Operating system
+   - Device type (desktop/mobile)
+4. **Screenshots or error messages** if applicable
+5. **Console errors** (open DevTools > Console)
+
+**Example bug report:**
+```markdown
+**Title**: Timer continues running after page refresh
+
+**Steps to reproduce**:
+1. Start a study session with timer
+2. Refresh the page
+3. Timer shows incorrect accumulated time
+
+**Expected**: Timer should reset on refresh
+**Actual**: Timer continues from previous value
+
+**Environment**: Chrome 120, Windows 11
+**Console error**: (paste any errors here)
+```
+
+### Feature Requests
+
+When requesting features, please include:
+
+1. **Clear description** of the proposed feature
+2. **Use case**: Why is this feature needed?
+3. **How it fits** with existing functionality
+4. **Potential implementation** ideas (optional)
+
+<Accordion title="Example Feature Request Template">
+```markdown
+**Title**: Add support for custom review intervals
+
+**Description**:
+Allow users to define custom spaced repetition intervals beyond the default [1, 7, 30, 90] days.
+
+**Use case**:
+Some study methodologies use different intervals (e.g., 3, 7, 14, 30, 60 days). This would allow users to customize the review system to their preferred method.
+
+**How it fits**:
+- Extends existing review functionality
+- Compatible with current state.config.frequenciaRevisao array
+- Would require UI in Settings module
+
+**Implementation ideas**:
+- Add input fields in Configurações tab
+- Validate that intervals are positive integers in ascending order
+- Update review scheduling logic in logic.js
+```
+</Accordion>
+
+## Project Modules
+
+Understand which module your contribution affects:
+
+| Module | Files | Description |
+|--------|-------|-------------|
+| **Store** | `src/js/store.js` | State management, IndexedDB |
+| **Logic** | `src/js/logic.js` | Business rules, performance calculations |
+| **Views** | `src/js/views.js` | UI rendering, DOM manipulation |
+| **Relevance** | `src/js/relevance.js` | NLP, fuzzy matching for exam analysis |
+| **Cloud Sync** | `src/js/cloud-sync.js` | Cloudflare Worker synchronization |
+| **Service Worker** | `sw.js` | PWA offline caching |
+
+## Community Guidelines
+
+- **Be respectful** and constructive in all interactions
+- **Help others** who are contributing or asking questions
+- **Focus on the code**, not the person
+- **Assume good intentions** from all contributors
+- **Ask questions** if something is unclear
+
+## License
+
+<Note>
+By contributing to Estudo Organizado, you agree that your contributions will be licensed under the **MIT License**. See the LICENSE file for details.
+</Note>
+
+Copyright (c) 2026 Matheus Silva
+
+## Questions?
+
+If you have questions about contributing:
+- Check existing issues and pull requests
+- Review the documentation in the docs folder
+- Reach out to the maintainers through GitHub issues
+
+Thank you for helping make Estudo Organizado better for students everywhere!

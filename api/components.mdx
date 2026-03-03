@@ -1,0 +1,313 @@
+---
+title: 'Components API'
+description: 'UI rendering functions for events, calendar, and views'
+---
+
+The Components module provides reusable rendering functions for building the Estudo Organizado user interface.
+
+## Timer Components
+
+### renderCronometro
+
+Render the full-screen timer (Cronômetro) view.
+
+```javascript
+import { renderCronometro } from './components.js';
+
+const el = document.getElementById('content');
+renderCronometro(el);
+```
+
+<ParamField path="el" type="HTMLElement" required>
+  Container element to render into
+</ParamField>
+
+This function:
+- Renders active and paused timers
+- Shows progress bar based on planned duration
+- Displays timer controls (play/pause, complete, discard)
+- Allows adding extra time to sessions
+- Shows mode toggle (Continuous / Pomodoro)
+- Updates display every second via interval
+- Handles Crono Livre (free session) with optional discipline selection
+
+<Note>
+  The function creates a global interval (`window._cronoInterval`) that must be cleared when navigating away.
+</Note>
+
+### Example Timer UI Features
+
+```javascript
+// Timer shows:
+// - Current elapsed time in HH:MM:SS or MM:SS format
+// - Progress bar relative to planned duration
+// - Play/Pause button
+// - Complete (checkmark) button
+// - Discard (trash) button (shown only if elapsed > 0)
+// - Add time buttons (+1min, +5min, +15min)
+// - Mode toggle (Continuous vs Pomodoro)
+// - Other active timers as quick-switch buttons
+```
+
+## Event Components
+
+### renderEventCard
+
+Render a single event card with status, timer, and actions.
+
+```javascript
+import { renderEventCard } from './components.js';
+
+const evento = state.eventos[0];
+const cardHTML = renderEventCard(evento);
+container.innerHTML += cardHTML;
+```
+
+<ParamField path="evento" type="object" required>
+  Event object with id, titulo, data, status, etc.
+</ParamField>
+
+<ResponseField name="return" type="string">
+  HTML string for the event card
+</ResponseField>
+
+The card includes:
+- **Color stripe** indicating status (green=studied, red=late, blue=scheduled)
+- **Discipline icon** with background color
+- **Event title** and subtitle (date + discipline name)
+- **Status tag** and elapsed time display
+- **Action buttons**: Play/Pause, Complete, Delete
+- **Click handler** to open event detail modal
+
+### Card Structure
+
+```html
+<div class="event-card" data-event-id="..." onclick="openEventDetail('...')">
+  <div class="event-stripe estudei|atrasado|agendado"></div>
+  <div class="event-disc-icon" style="background:...">📖</div>
+  <div class="event-info">
+    <div class="event-title">Título do Evento</div>
+    <div class="event-sub">03/03/2026 • Disciplina</div>
+    <div class="event-meta">
+      <span class="event-tag estudei">Estudei</span>
+      <span data-timer="ev_123">00:45:30</span>
+    </div>
+  </div>
+  <div class="event-actions">
+    <button class="icon-btn" onclick="toggleTimer('...')">▶</button>
+    <button class="icon-btn" onclick="marcarEstudei('...')">✅</button>
+    <button class="icon-btn" onclick="deleteEvento('...')">🗑</button>
+  </div>
+</div>
+```
+
+### Event Status Classes
+
+- **`estudei`**: Green stripe - Event marked as studied
+- **`atrasado`**: Red stripe - Event date is in the past
+- **`agendado`**: Blue stripe - Event is scheduled for today or future
+
+## View Orchestration
+
+### renderCurrentView
+
+Render the appropriate view based on `currentView` state.
+
+```javascript
+import { renderCurrentView } from './components.js';
+
+renderCurrentView(); // Renders current view into #content
+```
+
+This function:
+- Clears the cronometro interval if switching away from timer view
+- Updates page title in topbar
+- Updates date display (shown only on home view)
+- Renders topbar action buttons contextually
+- Calls `updateBadges()`
+- Delegates to view-specific render functions
+
+### Supported Views
+
+- **`home`**: Dashboard overview (via `renderHome`)
+- **`med`**: Study Organizer / Today's events (via `renderMED`)
+- **`calendar`**: Calendar view (via `renderCalendar`)
+- **`dashboard`**: Analytics dashboard (via `renderDashboard`)
+- **`revisoes`**: Pending revisions (via `renderRevisoes`)
+- **`habitos`**: Study habits tracker (via `renderHabitos`)
+- **`editais`**: Exam notices and topics (via `renderEditais` or discipline dashboard)
+- **`vertical`**: Verticalized syllabus view (via `renderVertical`)
+- **`config`**: Settings (via `renderConfig`)
+- **`cronometro`**: Full-screen timer (via `renderCronometro`)
+- **`ciclo`**: Study cycle planner (via `renderCiclo`)
+- **`banca-analyzer`**: Exam board intelligence (via `renderBancaAnalyzerModule`)
+
+### Topbar Action Buttons by View
+
+```javascript
+// Cronometro view
+'<button onclick="navigate(\'med\')">← Voltar</button>'
+
+// MED, Calendar, Home views
+'<button onclick="openAddEventModal()">+ Iniciar Estudo</button>'
+
+// Editais view
+'<button onclick="openEditaModal()">+ Novo Edital</button>'
+// Or if viewing discipline dashboard:
+'<button onclick="closeDiscDashboard()">← Voltar</button>'
+
+// Ciclo view
+'<button onclick="window.openPlanejamentoWizard()">⚙ Planejamento</button>'
+```
+
+## Badge Updates
+
+### updateBadges
+
+Update notification badges in the sidebar.
+
+```javascript
+import { updateBadges } from './components.js';
+
+updateBadges(); // Updates all badges based on current state
+```
+
+Badges updated:
+
+- **Cronômetro badge** (`#badge-crono`): Number of active timers
+- **MED badge** (`#badge-med`): Number of today's pending events
+- **Revisions badge** (`#badge-rev`): Number of pending revisions
+
+```javascript
+// Example badge states:
+// badge-crono: 2 (two active timers)
+// badge-med: 5 (five events scheduled for today, not yet studied)
+// badge-rev: 12 (twelve revisions due today or earlier)
+```
+
+<Tip>
+  Badges are automatically updated on state changes via the `app:updateBadges` event listener.
+</Tip>
+
+## Helper Functions
+
+While the main view rendering functions (`renderHome`, `renderMED`, etc.) are defined in `views.js`, the Components module provides the building blocks:
+
+### Event Card Example
+
+```javascript
+import { renderEventCard } from './components.js';
+import { state } from './store.js';
+
+const today = todayStr();
+const todayEvents = state.eventos.filter(e => e.data === today);
+
+const eventsHTML = todayEvents.map(renderEventCard).join('');
+
+document.getElementById('events-container').innerHTML = eventsHTML;
+```
+
+### Timer Interval Management
+
+```javascript
+// The renderCronometro function manages a global interval:
+if (window._cronoInterval) clearInterval(window._cronoInterval);
+
+window._cronoInterval = setInterval(() => {
+  // Update timer display every second
+  const elapsed = getElapsedSeconds(focusEvent);
+  document.getElementById('crono-main-timer').textContent = formatTime(elapsed);
+}, 1000);
+
+// IMPORTANT: Clear this interval when navigating away:
+if (currentView !== 'cronometro' && window._cronoInterval) {
+  clearInterval(window._cronoInterval);
+  window._cronoInterval = null;
+}
+```
+
+## Responsive Design
+
+All components use CSS custom properties for theming:
+
+```css
+/* Component styles reference these variables: */
+var(--bg)              /* Background color */
+var(--bg-elevated)     /* Elevated surface color */
+var(--border)          /* Border color */
+var(--text-primary)    /* Primary text color */
+var(--text-secondary)  /* Secondary text color */
+var(--text-muted)      /* Muted text color */
+var(--accent)          /* Accent color */
+var(--accent-light)    /* Light accent variant */
+var(--success)         /* Success green */
+var(--danger)          /* Danger red */
+```
+
+## Accessibility
+
+- Event cards are clickable and keyboard-navigable
+- Action buttons have `title` attributes for tooltips
+- Timer controls have clear visual states (play vs pause)
+- Status is communicated via color AND text labels
+- Forms use semantic HTML with proper labels
+
+## Events Dispatched
+
+Components listen for and dispatch these custom events:
+
+### Dispatched by Components
+
+- **`app:refreshEventCard`**: Request to refresh a specific event card
+  ```javascript
+  document.dispatchEvent(new CustomEvent('app:refreshEventCard', {
+    detail: { eventId: 'ev_123' }
+  }));
+  ```
+
+- **`app:renderCurrentView`**: Request to re-render the current view
+  ```javascript
+  document.dispatchEvent(new Event('app:renderCurrentView'));
+  ```
+
+### Listened by Components
+
+Components typically respond to these events (via listeners in `app.js` or `views.js`):
+
+- **`app:updateBadges`**: Update notification badges
+- **`app:invalidateCaches`**: Clear internal caches before re-rendering
+- **`app:showToast`**: Display toast notification
+- **`app:showConfirm`**: Show confirmation dialog
+
+## Integration Example
+
+```javascript
+import { navigate } from './app.js';
+import { renderCurrentView, updateBadges } from './components.js';
+import { state, scheduleSave } from './store.js';
+import { marcarEstudei } from './logic.js';
+
+// Initialize view
+navigate('med');
+
+// Listen for state changes
+document.addEventListener('app:renderCurrentView', () => {
+  renderCurrentView();
+});
+
+document.addEventListener('app:updateBadges', () => {
+  updateBadges();
+});
+
+// Add event and update UI
+state.eventos.push({
+  id: 'ev_' + Date.now(),
+  titulo: 'Study Math',
+  data: todayStr(),
+  duracao: 60,
+  status: 'agendado',
+  tempoAcumulado: 0
+});
+scheduleSave();
+renderCurrentView();
+```
