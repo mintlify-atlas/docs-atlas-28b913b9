@@ -1,0 +1,163 @@
+{
+  "projectType": "frontend",
+  "projectName": "Estudo Organizado",
+  "projectDescription": "Progressive Web App for study planning and organization targeting public exam preparation, based on the PDCA cycle.",
+  "theme": "almond",
+  "primaryColor": "#10b981",
+  "lightColor": "#34d399",
+  "darkColor": "#059669",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/study-organizer",
+              "features/calendar",
+              "features/dashboard",
+              "features/revisions",
+              "features/habits",
+              "features/editais",
+              "features/banca-intelligence",
+              "features/timer-pomodoro"
+            ]
+          },
+          {
+            "group": "Study Planning",
+            "pages": [
+              "planning/study-cycles",
+              "planning/weekly-planner",
+              "planning/relevance-weights",
+              "planning/scheduling"
+            ]
+          },
+          {
+            "group": "Synchronization",
+            "pages": [
+              "sync/cloudflare-setup",
+              "sync/google-drive",
+              "sync/backup-restore"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "config/themes",
+              "config/settings",
+              "config/notifications"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Architecture",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "architecture/overview",
+              "architecture/state-management",
+              "architecture/indexeddb"
+            ]
+          },
+          {
+            "group": "Core Modules",
+            "pages": [
+              "architecture/app-flow",
+              "architecture/store",
+              "architecture/logic",
+              "architecture/views",
+              "architecture/components"
+            ]
+          },
+          {
+            "group": "Advanced Features",
+            "pages": [
+              "architecture/relevance-engine",
+              "architecture/nlp-fuzzy-match",
+              "architecture/pwa-service-worker"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Developer Guide",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "developers/setup",
+              "developers/project-structure",
+              "developers/development-workflow"
+            ]
+          },
+          {
+            "group": "API Reference",
+            "pages": [
+              "api/store",
+              "api/logic",
+              "api/components",
+              "api/utils"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "contributing/guidelines",
+              "contributing/code-style",
+              "contributing/testing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Progressive Web App with offline support",
+    "Pomodoro timer with study session tracking",
+    "Spaced repetition review system",
+    "Study cycle planning and scheduling",
+    "Multi-device sync via Cloudflare Workers",
+    "Google Drive backup integration",
+    "Dashboard with performance analytics",
+    "Habit tracking for study activities",
+    "Exam syllabus (editais) management",
+    "AI-powered topic relevance analysis",
+    "NLP and fuzzy matching for exam board intelligence",
+    "IndexedDB state persistence",
+    "Customizable themes and settings"
+  ],
+  "publicApiSurface": [
+    "state - Global application state object",
+    "setState(newState) - Update application state",
+    "scheduleSave() - Debounced state persistence",
+    "initDB() - Initialize IndexedDB",
+    "navigate(view) - Navigate between app views",
+    "toggleTimer(eventId) - Start/pause study timer",
+    "marcarEstudei(eventId) - Mark study session as completed",
+    "getAllDisciplinas() - Get all disciplines from editais",
+    "getPendingRevisoes() - Get pending review items",
+    "calcRevisionDates(dataConclusao, feitas, adiamentos) - Calculate spaced repetition dates",
+    "generatePlanejamento(draft) - Generate study plan from wizard input",
+    "syncCicloToEventos() - Sync study cycle to calendar events",
+    "findBestMatch(editalSubjectName, disciplinaId) - NLP match exam topic to relevance database",
+    "calculateFinalRelevance(editalSubjectCtx) - Calculate topic priority score",
+    "applyRankingToEdital(editalId) - Rank exam topics by relevance",
+    "tokenize(text) - NLP tokenization with stopword removal",
+    "fuzzySimiliarity(word1, word2) - Levenshtein distance similarity",
+    "pushToCloudflare() - Sync state to Cloudflare Worker",
+    "pullFromCloudflare() - Pull state from Cloudflare Worker",
+    "syncWithDrive() - Sync with Google Drive",
+    "renderCurrentView() - Render active view component"
+  ]
+}
